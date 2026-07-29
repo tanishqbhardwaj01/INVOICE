@@ -382,10 +382,10 @@
   }
 
   function syncDueModeUI() {
-    const mode = getDueMode();
-    $("#dueDateField").hidden = mode !== "date";
-    $("#paymentTermsField").hidden = mode !== "terms";
-    const isCustom = mode === "terms" && $("#paymentTerms").value === "custom";
+    // Both fields stay visible; mode only controls what the invoice shows.
+    $("#dueDateField").hidden = false;
+    $("#paymentTermsField").hidden = false;
+    const isCustom = $("#paymentTerms").value === "custom";
     $("#customTermsField").hidden = !isCustom;
   }
 
