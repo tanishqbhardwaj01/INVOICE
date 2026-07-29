@@ -17,7 +17,7 @@
   ];
 
   const PAGE_ROWS = {
-    // Fill the sheet: middle/continued pages pack denser; last page uses reserve
+    // Base item budgets before footer reserves (banking / QR / totals)
     A4: { portrait: 21, landscape: 11, continued: 20 },
     A3: { portrait: 34, landscape: 18, continued: 36 },
     Letter: { portrait: 19, landscape: 10, continued: 18 },
@@ -402,69 +402,109 @@
     return `upi://pay?${params.toString()}`;
   }
 
-  function rowsPerPage(data, { continued = false } = {}) {
-    const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
-    let rows = continued
-      ? map.continued || map[data.orientation] || map.portrait
-      : map[data.orientation] || map.portrait;
-    // First page also has bill/ship block
-    if (!continued) rows = Math.max(10, rows - 5);
-    if (data.customColumns.length >= 3) rows = Math.max(8, rows - 1);
-    return rows;
+  function pageShowsBanking(data, isLast) {
+    return hasBanking(data.bank) && (isLast || data.repeat.banking);
   }
 
-  /** How many items fit on a SINGLE page (header + parties + summary). */
-  function singlePageCapacity(data) {
-    let cap = data.pageSize === "A3" ? 16 : 10;
-    if (data.pageSize === "Legal") cap = 12;
-    if (data.orientation === "landscape") cap = Math.max(4, cap - 3);
-    if (data.notes || data.terms) cap -= 1;
-    if (hasBanking(data.bank)) cap -= 1;
-    if (data.showQr && data.bank.upi) cap -= 2;
-    if (data.charges.length) cap -= 1;
-    if (data.customColumns.length >= 3) cap -= 1;
-    return Math.max(4, cap);
+  function pageShowsQr(data, isLast) {
+    return Boolean(data.showQr && data.bank.upi) && (isLast || data.qrEveryPage);
   }
 
-  function lastPageItemCapacity(data) {
-    // Closing page of a multi-page invoice (header + items + summary)
-    let cap = data.pageSize === "A3" ? 10 : 5;
-    if (data.orientation === "landscape") cap = Math.max(2, cap - 2);
-    if (data.notes || data.terms) cap = Math.max(2, cap - 1);
-    if (hasBanking(data.bank)) cap = Math.max(2, cap - 1);
-    if (data.showQr && data.bank.upi) cap = Math.max(1, cap - 2);
-    if (data.charges.length) cap = Math.max(1, cap - 1);
-    return cap;
+  /** Vertical space taken by notes / totals / banking / QR, in item-row units. */
+  function footerReserve(data, { banking, qr, summary }) {
+    let reserve = 0;
+    if (summary) {
+      reserve += 2; // totals block
+      if (data.notes || data.terms) reserve += 1;
+      if (data.charges.length) reserve += 1;
+    }
+    // Banking + QR used to cover ~4 trailing items — reserve that space so rows push forward
+    if (banking && qr) reserve += 4;
+    else if (qr) reserve += 3;
+    else if (banking) reserve += 2;
+    return reserve;
   }
 
   /**
-   * One page if everything fits with the summary.
-   * Extra pages only when page-1 item limit is exceeded.
+   * Item capacity for a page kind.
+   * kind: single | first | mid | last
+   * Banking/QR every-page flags reduce first/mid capacity so items push to the next page
+   * instead of being clipped under the pay row.
+   */
+  function capacityFor(data, kind) {
+    const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
+    const portrait = map[data.orientation] || map.portrait;
+    const continued = map.continued || portrait;
+    const isLast = kind === "last" || kind === "single";
+    const summary = isLast;
+    const banking = pageShowsBanking(data, isLast);
+    const qr = pageShowsQr(data, isLast);
+
+    let base;
+    if (kind === "mid") base = continued;
+    else if (kind === "first") base = Math.max(12, portrait - 5); // bill/ship block
+    else if (kind === "last") base = Math.max(16, portrait - 2); // header + items + summary
+    else base = Math.max(14, portrait - 5); // single: parties + summary
+
+    if (data.orientation === "landscape") base = Math.max(4, Math.floor(base * 0.55));
+    if (data.customColumns.length >= 3) base = Math.max(4, base - 1);
+
+    return Math.max(1, base - footerReserve(data, { banking, qr, summary }));
+  }
+
+  /**
+   * One page if summary fits.
+   * Else fill front pages to capacity; last page holds as many as fit (saves space).
+   * Banking/QR on every page reduces front capacity so rows move to the next page — never clipped.
+   * Tiny stub pages (old 16+1 style) are avoided: overflow of ~1–2 items goes onto a new last page.
    */
   function chunkItemsSmart(items, data) {
     if (!items.length) return [[]];
 
-    const singleCap = singlePageCapacity(data);
+    const singleCap = capacityFor(data, "single");
     if (items.length <= singleCap) return [items.slice()];
 
-    const firstRows = rowsPerPage(data, { continued: false });
-    const midRows = rowsPerPage(data, { continued: true });
-    const lastRows = Math.max(1, lastPageItemCapacity(data));
+    const first = capacityFor(data, "first");
+    const mid = capacityFor(data, "mid");
+    const last = capacityFor(data, "last");
+    const n = items.length;
 
-    const chunks = [];
-    let remaining = items.slice();
-    let isFirst = true;
-
-    while (remaining.length > lastRows) {
-      const cap = isFirst ? firstRows : midRows;
-      const take = Math.min(cap, remaining.length - lastRows);
-      if (take <= 0) break;
-      chunks.push(remaining.splice(0, take));
-      isFirst = false;
+    // Two-page pack: keep both pages useful (no 16+1 / 1+9)
+    if (n <= first + last) {
+      let firstCount = Math.min(first, Math.max(n - last, Math.ceil(n / 2)));
+      firstCount = Math.max(1, Math.min(firstCount, n - 1));
+      let lastCount = n - firstCount;
+      if (lastCount > last) {
+        lastCount = last;
+        firstCount = n - lastCount;
+      }
+      return [items.slice(0, firstCount), items.slice(firstCount)];
     }
 
-    if (remaining.length) chunks.push(remaining);
-    return chunks.length ? chunks : [[]];
+    const chunks = [];
+    const rem = items.slice();
+    chunks.push(rem.splice(0, Math.min(first, rem.length)));
+
+    while (rem.length > last) {
+      // Still need more than one trailing page
+      if (rem.length <= mid + last) {
+        const take = Math.min(mid, rem.length - last);
+        // Avoid a tiny stub page: send a small overflow onto the next (last) page instead
+        if (take > 0 && take < 4) {
+          const overflow = Math.min(2, rem.length - 1);
+          chunks.push(rem.splice(0, rem.length - overflow));
+          break;
+        }
+        if (take <= 0) break;
+        chunks.push(rem.splice(0, take));
+        break;
+      }
+      // Full middle page — banking/QR space already removed from `mid`
+      chunks.push(rem.splice(0, mid));
+    }
+    if (rem.length) chunks.push(rem);
+
+    return chunks.filter((c) => c.length);
   }
 
   /* ---------- Settings modal ---------- */
