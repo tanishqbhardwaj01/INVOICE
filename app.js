@@ -18,10 +18,10 @@
 
   const PAGE_ROWS = {
     // Fill the sheet: middle/continued pages pack denser; last page uses reserve
-    A4: { portrait: 20, landscape: 11, continued: 24 },
-    A3: { portrait: 34, landscape: 18, continued: 40 },
-    Letter: { portrait: 18, landscape: 10, continued: 22 },
-    Legal: { portrait: 26, landscape: 11, continued: 30 },
+    A4: { portrait: 20, landscape: 11, continued: 22 },
+    A3: { portrait: 34, landscape: 18, continued: 38 },
+    Letter: { portrait: 18, landscape: 10, continued: 20 },
+    Legal: { portrait: 26, landscape: 11, continued: 28 },
   };
 
   const CURRENCY = {
