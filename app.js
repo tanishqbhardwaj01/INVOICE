@@ -5,18 +5,23 @@
 
   const MAX_CUSTOM_COLUMNS = 5;
 
-  const PAGE_ROWS = {
-    A4: { portrait: 12, landscape: 7 },
-    A3: { portrait: 22, landscape: 12 },
-    Letter: { portrait: 11, landscape: 7 },
-    Legal: { portrait: 16, landscape: 7 },
-  };
+  const COLUMN_POSITIONS = [
+    { value: "before_item", label: "Before Item" },
+    { value: "after_item", label: "After Item" },
+    { value: "before_qty", label: "Before Qty" },
+    { value: "after_qty", label: "After Qty" },
+    { value: "before_rate", label: "Before Rate" },
+    { value: "after_rate", label: "After Rate" },
+    { value: "before_amount", label: "Before Amount" },
+    { value: "after_amount", label: "After Amount" },
+  ];
 
-  const LAST_PAGE_RESERVE = {
-    base: 3,
-    notes: 2,
-    banking: 3,
-    qr: 4,
+  const PAGE_ROWS = {
+    // Fill the sheet: middle/continued pages pack denser; last page uses reserve
+    A4: { portrait: 21, landscape: 11, continued: 20 },
+    A3: { portrait: 34, landscape: 18, continued: 36 },
+    Letter: { portrait: 19, landscape: 10, continued: 18 },
+    Legal: { portrait: 27, landscape: 11, continued: 26 },
   };
 
   const CURRENCY = {
@@ -29,6 +34,7 @@
   const state = {
     items: [],
     customColumns: [],
+    charges: [],
     logoDataUrl: "",
     scaleRaf: 0,
   };
@@ -45,9 +51,27 @@
   }
 
   function addDaysISO(days) {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
+    return addDaysToISO(todayISO(), days);
+  }
+
+  function addDaysToISO(isoDate, days) {
+    const base = isoDate || todayISO();
+    const d = new Date(`${base}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      const fallback = new Date();
+      fallback.setDate(fallback.getDate() + Number(days) || 0);
+      return fallback.toISOString().slice(0, 10);
+    }
+    d.setDate(d.getDate() + (Number(days) || 0));
     return d.toISOString().slice(0, 10);
+  }
+
+  function daysBetween(fromISO, toISO) {
+    if (!fromISO || !toISO) return 0;
+    const a = new Date(`${fromISO}T12:00:00`);
+    const b = new Date(`${toISO}T12:00:00`);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+    return Math.round((b - a) / 86400000);
   }
 
   function defaultInvoiceNumber() {
@@ -82,6 +106,65 @@
     return escapeHtml(str).replace(/\n/g, "<br />");
   }
 
+  /**
+   * Cell helpers:
+   * - "10*5" → evaluates to 50 (display only)
+   * - "-15%" / "+10%" → % adjust line amount
+   * - "-50" / "+50" → flat ₹/currency adjust line amount (sign required)
+   * - "50" unsigned → display only (no amount impact)
+   */
+  function evalArithmetic(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return { ok: false, value: text };
+
+    if (/^[+\-]?\d+(\.\d+)?\s*%$/.test(text)) {
+      return { ok: true, value: text.replace(/\s+/g, ""), isPercent: true };
+    }
+
+    // Keep explicit signed flat amounts as-is (e.g. -50, +100)
+    if (/^[+\-]\d+(\.\d+)?$/.test(text)) {
+      return { ok: true, value: text, isFlat: true };
+    }
+
+    if (!/[+\-*/()]/.test(text)) return { ok: false, value: text };
+    if (!/^[\d\s.+\-*/()]+$/.test(text)) return { ok: false, value: text };
+    try {
+      const result = Function(`"use strict"; return (${text});`)();
+      if (typeof result !== "number" || !Number.isFinite(result)) {
+        return { ok: false, value: text };
+      }
+      const rounded = Math.round(result * 100) / 100;
+      return { ok: true, value: String(rounded), isPercent: false };
+    } catch {
+      return { ok: false, value: text };
+    }
+  }
+
+  function lineAmountAdjustments(item) {
+    let factor = 1;
+    let flat = 0;
+    Object.values(item.custom || {}).forEach((raw) => {
+      const text = String(raw ?? "").trim();
+      const pct = text.match(/^([+\-]?\d+(?:\.\d+)?)\s*%$/);
+      if (pct) {
+        factor *= 1 + Number(pct[1]) / 100;
+        return;
+      }
+      // Flat wave/discount in currency: must include + or - (e.g. -50)
+      const flatMatch = text.match(/^([+\-]\d+(?:\.\d+)?)$/);
+      if (flatMatch) {
+        flat += Number(flatMatch[1]);
+      }
+    });
+    return { factor, flat };
+  }
+
+  function lineAmount(item) {
+    const base = (Number(item.qty) || 0) * (Number(item.rate) || 0);
+    const { factor, flat } = lineAmountAdjustments(item);
+    return Math.round((base * factor + flat) * 100) / 100;
+  }
+
   function blankItem() {
     const custom = {};
     state.customColumns.forEach((col) => {
@@ -90,39 +173,102 @@
     return { id: uid("item"), description: "", qty: 1, rate: 0, custom };
   }
 
-  function getDueMode() {
-    const checked = $('input[name="dueMode"]:checked');
-    return checked ? checked.value : "date";
+  function blankCharge() {
+    return { id: uid("chg"), label: "", amount: 0 };
+  }
+
+  function isCustomTerms() {
+    return $("#paymentTerms").value === "custom";
   }
 
   function getPaymentTermsLabel() {
     const sel = $("#paymentTerms").value;
+    if (sel === "0") return "Due on receipt";
     if (sel === "custom") {
-      return $("#customTerms").value.trim() || "Custom terms";
+      const days = daysBetween($("#invoiceDate").value, $("#dueDate").value);
+      if (days === 0) return "Due on receipt";
+      if (days < 0) return "Custom terms";
+      return `Net ${days}`;
     }
-    return sel;
+    return `Net ${sel}`;
+  }
+
+  function syncPaymentDueUI({ skipDueDateWrite = false } = {}) {
+    const terms = $("#paymentTerms").value;
+    const dueInput = $("#dueDate");
+    const lockHint = $("#dueLockHint");
+    const summary = $("#dueSummary");
+    const invoiceDate = $("#invoiceDate").value || todayISO();
+    const custom = terms === "custom";
+
+    dueInput.disabled = !custom;
+    if (lockHint) {
+      lockHint.textContent = custom ? "Unlocked" : "Locked to terms";
+      lockHint.classList.toggle("is-unlocked", custom);
+    }
+
+    if (!custom && !skipDueDateWrite) {
+      const n = Number(terms) || 0;
+      dueInput.value = addDaysToISO(invoiceDate, n);
+    }
+
+    if (summary) {
+      if (terms === "0") {
+        summary.textContent = "Due on receipt · due date matches invoice date";
+      } else if (custom) {
+        const days = daysBetween(invoiceDate, dueInput.value);
+        if (!dueInput.value) {
+          summary.textContent = "Due on date · pick a due date (terms = day count)";
+        } else if (days === 0) {
+          summary.textContent = "Custom · due on receipt (0 days from invoice date)";
+        } else if (days < 0) {
+          summary.textContent = "Custom · due date is before invoice date";
+        } else {
+          summary.textContent = `Custom · Net ${days} · ${days} day${days === 1 ? "" : "s"} from invoice date`;
+        }
+      } else {
+        summary.textContent = `Net ${terms} · due date follows invoice date`;
+      }
+    }
+  }
+
+  function chargesTotal() {
+    return state.charges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
   }
 
   function computeTotals() {
     const taxPercent = Number($("#taxPercent").value) || 0;
     const autoRound = $("#autoRound").checked;
-    let subtotal = state.items.reduce((sum, item) => {
-      const qty = Number(item.qty) || 0;
-      const rate = Number(item.rate) || 0;
-      return sum + qty * rate;
-    }, 0);
-    let tax = (subtotal * taxPercent) / 100;
-    let grand = subtotal + tax;
+    const amountPaid = Number($("#amountPaid").value) || 0;
+    let subtotal = state.items.reduce((sum, item) => sum + lineAmount(item), 0);
+    const charges = chargesTotal();
+    let taxable = subtotal + charges;
+    let tax = (taxable * taxPercent) / 100;
+    let grand = taxable + tax;
     if (autoRound) {
       grand = Math.round(grand);
-      tax = grand - subtotal;
+      tax = grand - taxable;
     }
-    return { subtotal, tax, taxPercent, grand };
+    const balance = grand - amountPaid;
+    return { subtotal, charges, tax, taxPercent, grand, amountPaid, balance };
+  }
+
+  function sortedColumns() {
+    const order = COLUMN_POSITIONS.map((p) => p.value);
+    return state.customColumns
+      .slice()
+      .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position) || a.name.localeCompare(b.name));
+  }
+
+  function columnsAt(position) {
+    return sortedColumns().filter((c) => c.position === position);
   }
 
   function readForm() {
     const currency = $("#currency").value;
     const totals = computeTotals();
+    const shipDifferent = $("#shipDifferent").checked;
+    const termsValue = $("#paymentTerms").value;
     return {
       invoiceNumber: $("#invoiceNumber").value.trim() || "—",
       documentTitle: $("#documentTitle").value.trim() || "INVOICE",
@@ -131,23 +277,43 @@
       themeColor: $("#themeColor").value || "#4066E6",
       notes: $("#notes").value.trim(),
       terms: $("#terms").value.trim(),
+      tagline: $("#fromTagline").value.trim(),
       from: {
         name: $("#fromName").value.trim() || "Your Company",
         address: $("#fromAddress").value.trim(),
-        city: $("#fromCity").value.trim(),
-        country: $("#fromCountry").value.trim(),
-        contact: $("#fromContact").value.trim(),
+        gstin: $("#fromGstin").value.trim(),
+        stateCode: $("#fromStateCode").value.trim(),
+        website: $("#fromWebsite").value.trim(),
+        email: $("#fromEmail").value.trim(),
+        phone: $("#fromPhone").value.trim(),
       },
       to: {
         name: $("#toName").value.trim(),
         address: $("#toAddress").value.trim(),
-        city: $("#toCity").value.trim(),
-        country: $("#toCountry").value.trim(),
-        contact: $("#toContact").value.trim(),
+        gstin: $("#toGstin").value.trim(),
+        stateCode: $("#toStateCode").value.trim(),
+        email: $("#toEmail").value.trim(),
+        phone: $("#toPhone").value.trim(),
       },
-      dueMode: getDueMode(),
+      shipDifferent,
+      ship: shipDifferent
+        ? {
+            name: $("#shipName").value.trim(),
+            address: $("#shipAddress").value.trim(),
+            email: $("#shipEmail").value.trim(),
+            phone: $("#shipPhone").value.trim(),
+          }
+        : {
+            name: $("#toName").value.trim(),
+            address: $("#toAddress").value.trim(),
+            email: $("#toEmail").value.trim(),
+            phone: $("#toPhone").value.trim(),
+          },
       dueDate: $("#dueDate").value,
       paymentTerms: getPaymentTermsLabel(),
+      paymentTermsValue: termsValue,
+      showBothDueOnInvoice: $("#showBothDueOnInvoice").checked,
+      amountPaid: Number($("#amountPaid").value) || 0,
       bank: {
         name: $("#bankName").value.trim(),
         accountName: $("#accountName").value.trim(),
@@ -156,6 +322,7 @@
         upi: $("#upiId").value.trim(),
       },
       showQr: $("#showQr").checked,
+      qrEveryPage: $("#qrEveryPage").checked,
       pageSize: $("#pageSize").value,
       orientation: $("#orientation").value,
       repeat: {
@@ -165,21 +332,16 @@
         banking: $("#repeatBanking").checked,
         pageNumbers: $("#repeatPageNumbers").checked,
       },
-      customColumns: state.customColumns.map((c) => ({ ...c })),
+      customColumns: sortedColumns(),
+      charges: state.charges.map((c) => ({ ...c })),
       logoDataUrl: state.logoDataUrl,
       items: state.items.map((item) => ({
         ...item,
         custom: { ...(item.custom || {}) },
-        amount: (Number(item.qty) || 0) * (Number(item.rate) || 0),
+        amount: lineAmount(item),
       })),
       totals,
     };
-  }
-
-  function partyLines(party) {
-    return [party.address, party.city, party.country, party.contact]
-      .filter(Boolean)
-      .join("\n");
   }
 
   function hasBanking(bank) {
@@ -199,90 +361,141 @@
     return `upi://pay?${params.toString()}`;
   }
 
-  function rowsPerPage(data) {
+  function rowsPerPage(data, { continued = false } = {}) {
     const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
-    let rows = map[data.orientation] || map.portrait;
-    // Extra custom columns take horizontal space; keep row budget stable
-    if (data.customColumns.length >= 3) rows = Math.max(4, rows - 1);
+    let rows = continued
+      ? map.continued || map[data.orientation] || map.portrait
+      : map[data.orientation] || map.portrait;
+    // First page also has bill/ship block
+    if (!continued) rows = Math.max(10, rows - 5);
+    if (data.customColumns.length >= 3) rows = Math.max(8, rows - 1);
     return rows;
   }
 
-  function lastPageItemCapacity(data) {
-    const full = rowsPerPage(data);
-    let reserve = LAST_PAGE_RESERVE.base;
-    if (data.notes || data.terms) reserve += LAST_PAGE_RESERVE.notes;
-    if (hasBanking(data.bank)) reserve += LAST_PAGE_RESERVE.banking;
-    if (data.showQr && data.bank.upi) reserve += LAST_PAGE_RESERVE.qr;
-    return Math.max(1, full - reserve);
+  /** How many items fit on a SINGLE page (header + parties + summary). */
+  function singlePageCapacity(data) {
+    let cap = data.pageSize === "A3" ? 16 : 10;
+    if (data.pageSize === "Legal") cap = 12;
+    if (data.orientation === "landscape") cap = Math.max(4, cap - 3);
+    if (data.notes || data.terms) cap -= 1;
+    if (hasBanking(data.bank)) cap -= 1;
+    if (data.showQr && data.bank.upi) cap -= 2;
+    if (data.charges.length) cap -= 1;
+    if (data.customColumns.length >= 3) cap -= 1;
+    return Math.max(4, cap);
   }
 
-  function chunkItems(items, fullRows, lastRows) {
+  function lastPageItemCapacity(data) {
+    // Closing page of a multi-page invoice (header + items + summary)
+    let cap = data.pageSize === "A3" ? 10 : 5;
+    if (data.orientation === "landscape") cap = Math.max(2, cap - 2);
+    if (data.notes || data.terms) cap = Math.max(2, cap - 1);
+    if (hasBanking(data.bank)) cap = Math.max(2, cap - 1);
+    if (data.showQr && data.bank.upi) cap = Math.max(1, cap - 2);
+    if (data.charges.length) cap = Math.max(1, cap - 1);
+    return cap;
+  }
+
+  /**
+   * One page if everything fits with the summary.
+   * Extra pages only when page-1 item limit is exceeded.
+   */
+  function chunkItemsSmart(items, data) {
     if (!items.length) return [[]];
-    const maxLast = Math.max(1, Math.min(lastRows, fullRows));
-    if (items.length <= maxLast) return [items.slice()];
+
+    const singleCap = singlePageCapacity(data);
+    if (items.length <= singleCap) return [items.slice()];
+
+    const firstRows = rowsPerPage(data, { continued: false });
+    const midRows = rowsPerPage(data, { continued: true });
+    const lastRows = Math.max(1, lastPageItemCapacity(data));
 
     const chunks = [];
     let remaining = items.slice();
+    let isFirst = true;
 
-    while (remaining.length > maxLast) {
-      const overflow = remaining.length - maxLast;
-      const take = Math.min(fullRows, overflow);
+    while (remaining.length > lastRows) {
+      const cap = isFirst ? firstRows : midRows;
+      const take = Math.min(cap, remaining.length - lastRows);
+      if (take <= 0) break;
       chunks.push(remaining.splice(0, take));
+      isFirst = false;
     }
 
-    chunks.push(remaining);
-    return chunks;
+    if (remaining.length) chunks.push(remaining);
+    return chunks.length ? chunks : [[]];
   }
 
   /* ---------- Settings modal ---------- */
 
   function openSettings() {
-    const modal = $("#settings-modal");
-    modal.hidden = false;
+    $("#settings-modal").hidden = false;
     document.body.classList.add("modal-open");
     $("#btn-settings").setAttribute("aria-expanded", "true");
-    renderColumnsEditor();
   }
 
   function closeSettings() {
-    const modal = $("#settings-modal");
-    modal.hidden = true;
-    document.body.classList.remove("modal-open");
+    $("#settings-modal").hidden = true;
+    if ($("#columns-modal").hidden) document.body.classList.remove("modal-open");
     $("#btn-settings").setAttribute("aria-expanded", "false");
   }
 
   function bindSettingsModal() {
     $("#btn-settings").addEventListener("click", openSettings);
-    $$("[data-close-settings]").forEach((el) => {
-      el.addEventListener("click", closeSettings);
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !$("#settings-modal").hidden) closeSettings();
-    });
+    $$("[data-close-settings]").forEach((el) => el.addEventListener("click", closeSettings));
   }
 
-  /* ---------- Custom columns ---------- */
+  /* ---------- Custom columns modal ---------- */
+
+  function openColumnsModal() {
+    $("#columns-modal").hidden = false;
+    document.body.classList.add("modal-open");
+    renderColumnsEditor();
+  }
+
+  function closeColumnsModal() {
+    $("#columns-modal").hidden = true;
+    if ($("#settings-modal").hidden) document.body.classList.remove("modal-open");
+  }
+
+  function positionOptions(selected) {
+    return COLUMN_POSITIONS.map(
+      (p) =>
+        `<option value="${p.value}" ${p.value === selected ? "selected" : ""}>${escapeHtml(p.label)}</option>`
+    ).join("");
+  }
 
   function renderColumnsEditor() {
     const list = $("#columns-list");
     const empty = $("#columns-empty");
     const count = $("#columns-count");
-    const addBtn = $("#btn-add-column");
+    const addBtn = $("#btn-add-column-modal");
     const n = state.customColumns.length;
 
-    count.textContent = `Add fields to line items (max ${MAX_CUSTOM_COLUMNS}) · ${n}/${MAX_CUSTOM_COLUMNS}`;
-    addBtn.disabled = n >= MAX_CUSTOM_COLUMNS;
-    empty.hidden = n > 0;
+    if (count) {
+      count.textContent = `Movable · arithmetic in cells · max ${MAX_CUSTOM_COLUMNS} · ${n}/${MAX_CUSTOM_COLUMNS}`;
+    }
+    if (addBtn) addBtn.disabled = n >= MAX_CUSTOM_COLUMNS;
+    if (empty) empty.hidden = n > 0;
 
     list.innerHTML = state.customColumns
       .map(
         (col, index) => `
       <div class="column-row" data-col-id="${col.id}">
+        <span class="column-row__idx">${index + 1}</span>
         <label class="field field--grow">
-          <span>Column ${index + 1} name</span>
-          <input type="text" data-col-name value="${escapeHtml(col.name)}" placeholder="e.g. SKU" maxlength="24" />
+          <span>Name</span>
+          <input type="text" data-col-name value="${escapeHtml(col.name)}" placeholder="e.g. SKU / HSN" maxlength="24" />
         </label>
-        <button type="button" class="btn btn--ghost btn--sm" data-remove-col aria-label="Remove column">Remove</button>
+        <label class="field">
+          <span>Position</span>
+          <select data-col-position>${positionOptions(col.position || "after_item")}</select>
+        </label>
+        <div class="column-row__moves">
+          <button type="button" class="btn btn--ghost btn--sm" data-move-col="-1" title="Move up">↑</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-move-col="1" title="Move down">↓</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-remove-col>Remove</button>
+        </div>
       </div>`
       )
       .join("");
@@ -301,15 +514,23 @@
     });
   }
 
-  function bindColumns() {
-    $("#btn-add-column").addEventListener("click", () => {
-      if (state.customColumns.length >= MAX_CUSTOM_COLUMNS) return;
-      state.customColumns.push({ id: uid("col"), name: `Column ${state.customColumns.length + 1}` });
-      syncItemsWithColumns();
-      renderColumnsEditor();
-      renderItemsEditor();
-      renderPages();
+  function addCustomColumn() {
+    if (state.customColumns.length >= MAX_CUSTOM_COLUMNS) return;
+    state.customColumns.push({
+      id: uid("col"),
+      name: `Column ${state.customColumns.length + 1}`,
+      position: "after_item",
     });
+    syncItemsWithColumns();
+    renderColumnsEditor();
+    renderItemsEditor();
+    renderPages();
+  }
+
+  function bindColumns() {
+    $("#btn-add-column").addEventListener("click", openColumnsModal);
+    $("#btn-add-column-modal").addEventListener("click", addCustomColumn);
+    $$("[data-close-columns]").forEach((el) => el.addEventListener("click", closeColumnsModal));
 
     $("#columns-list").addEventListener("input", (e) => {
       const input = e.target.closest("[data-col-name]");
@@ -322,51 +543,170 @@
       renderPages();
     });
 
-    $("#columns-list").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-remove-col]");
-      if (!btn) return;
-      const row = btn.closest("[data-col-id]");
-      state.customColumns = state.customColumns.filter((c) => c.id !== row.dataset.colId);
-      syncItemsWithColumns();
+    $("#columns-list").addEventListener("change", (e) => {
+      const select = e.target.closest("[data-col-position]");
+      if (!select) return;
+      const row = select.closest("[data-col-id]");
+      const col = state.customColumns.find((c) => c.id === row.dataset.colId);
+      if (!col) return;
+      col.position = select.value;
       renderColumnsEditor();
       renderItemsEditor();
+      renderPages();
+    });
+
+    $("#columns-list").addEventListener("click", (e) => {
+      const row = e.target.closest("[data-col-id]");
+      if (!row) return;
+      const id = row.dataset.colId;
+      const idx = state.customColumns.findIndex((c) => c.id === id);
+      if (idx < 0) return;
+
+      const removeBtn = e.target.closest("[data-remove-col]");
+      if (removeBtn) {
+        state.customColumns.splice(idx, 1);
+        syncItemsWithColumns();
+        renderColumnsEditor();
+        renderItemsEditor();
+        renderPages();
+        return;
+      }
+
+      const moveBtn = e.target.closest("[data-move-col]");
+      if (moveBtn) {
+        const dir = Number(moveBtn.dataset.moveCol);
+        const next = idx + dir;
+        if (next < 0 || next >= state.customColumns.length) return;
+        const tmp = state.customColumns[idx];
+        state.customColumns[idx] = state.customColumns[next];
+        state.customColumns[next] = tmp;
+        renderColumnsEditor();
+        renderItemsEditor();
+        renderPages();
+      }
+    });
+  }
+
+  /* ---------- Charges ---------- */
+
+  function renderChargesEditor() {
+    const list = $("#charges-list");
+    const empty = $("#charges-empty");
+    empty.hidden = state.charges.length > 0;
+    list.innerHTML = state.charges
+      .map(
+        (c) => `
+      <div class="charge-row" data-charge-id="${c.id}">
+        <label class="field field--grow">
+          <span>Label</span>
+          <input type="text" data-charge-label value="${escapeHtml(c.label)}" placeholder="e.g. Shipping / Discount" />
+        </label>
+        <label class="field">
+          <span>Amount</span>
+          <input type="number" data-charge-amount step="0.01" value="${c.amount}" />
+        </label>
+        <button type="button" class="btn btn--ghost btn--sm" data-remove-charge>Remove</button>
+      </div>`
+      )
+      .join("");
+  }
+
+  function bindCharges() {
+    $("#btn-add-charge").addEventListener("click", () => {
+      state.charges.push(blankCharge());
+      renderChargesEditor();
+      updateEditorTotals();
+      renderPages();
+    });
+
+    $("#charges-list").addEventListener("input", (e) => {
+      const row = e.target.closest("[data-charge-id]");
+      if (!row) return;
+      const charge = state.charges.find((c) => c.id === row.dataset.chargeId);
+      if (!charge) return;
+      if (e.target.matches("[data-charge-label]")) charge.label = e.target.value;
+      if (e.target.matches("[data-charge-amount]")) charge.amount = Number(e.target.value) || 0;
+      updateEditorTotals();
+      renderPages();
+    });
+
+    $("#charges-list").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-remove-charge]");
+      if (!btn) return;
+      const row = btn.closest("[data-charge-id]");
+      state.charges = state.charges.filter((c) => c.id !== row.dataset.chargeId);
+      renderChargesEditor();
+      updateEditorTotals();
       renderPages();
     });
   }
 
   /* ---------- Items editor ---------- */
 
+  function buildColumnSlots() {
+    return {
+      before_item: columnsAt("before_item"),
+      after_item: columnsAt("after_item"),
+      before_qty: columnsAt("before_qty"),
+      after_qty: columnsAt("after_qty"),
+      before_rate: columnsAt("before_rate"),
+      after_rate: columnsAt("after_rate"),
+      before_amount: columnsAt("before_amount"),
+      after_amount: columnsAt("after_amount"),
+    };
+  }
+
+  function thForCols(cols) {
+    return cols.map((col) => `<th class="custom-col">${escapeHtml(col.name || "Column")}</th>`).join("");
+  }
+
+  function tdForCols(cols, item) {
+    return cols
+      .map(
+        (col) =>
+          `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)} · -15% or -50" /></td>`
+      )
+      .join("");
+  }
+
   function renderItemsEditor() {
     const head = $("#items-head");
     const body = $("#items-body");
-    const customTh = state.customColumns
-      .map((col) => `<th class="custom-col">${escapeHtml(col.name || "Column")}</th>`)
-      .join("");
+    const s = buildColumnSlots();
 
     head.innerHTML = `<tr>
+      ${thForCols(s.before_item)}
       <th>Description</th>
-      ${customTh}
+      ${thForCols(s.after_item)}
+      ${thForCols(s.before_qty)}
       <th>Qty</th>
+      ${thForCols(s.after_qty)}
+      ${thForCols(s.before_rate)}
       <th>Rate</th>
+      ${thForCols(s.after_rate)}
+      ${thForCols(s.before_amount)}
       <th>Amount</th>
+      ${thForCols(s.after_amount)}
       <th></th>
     </tr>`;
 
     body.innerHTML = state.items
       .map((item) => {
-        const amount = (Number(item.qty) || 0) * (Number(item.rate) || 0);
-        const customCells = state.customColumns
-          .map(
-            (col) => `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)}" /></td>`
-          )
-          .join("");
+        const amount = lineAmount(item);
         return `
         <tr data-id="${item.id}">
+          ${tdForCols(s.before_item, item)}
           <td><input type="text" data-field="description" value="${escapeHtml(item.description)}" placeholder="Item name / description" /></td>
-          ${customCells}
+          ${tdForCols(s.after_item, item)}
+          ${tdForCols(s.before_qty, item)}
           <td><input type="number" data-field="qty" min="0" step="1" value="${item.qty}" /></td>
+          ${tdForCols(s.after_qty, item)}
+          ${tdForCols(s.before_rate, item)}
           <td><input type="number" data-field="rate" min="0" step="0.01" value="${item.rate}" /></td>
+          ${tdForCols(s.after_rate, item)}
+          ${tdForCols(s.before_amount, item)}
           <td class="amount-cell">${money(amount, $("#currency").value)}</td>
+          ${tdForCols(s.after_amount, item)}
           <td><button type="button" class="btn btn--icon" data-remove title="Remove item" aria-label="Remove item">×</button></td>
         </tr>`;
       })
@@ -375,18 +715,35 @@
 
   function updateEditorTotals() {
     const currency = $("#currency").value;
-    const { subtotal, tax, grand } = computeTotals();
+    const { subtotal, charges, tax, grand, balance } = computeTotals();
     $("#editorSubtotal").textContent = money(subtotal, currency);
+    $("#editorCharges").textContent = money(charges, currency);
     $("#editorTax").textContent = money(tax, currency);
     $("#editorGrand").textContent = money(grand, currency);
+    $("#editorBalance").textContent = money(balance, currency);
   }
 
-  function syncDueModeUI() {
-    // Both fields stay visible; mode only controls what the invoice shows.
-    $("#dueDateField").hidden = false;
-    $("#paymentTermsField").hidden = false;
-    const isCustom = $("#paymentTerms").value === "custom";
-    $("#customTermsField").hidden = !isCustom;
+  function syncShipUI() {
+    const different = $("#shipDifferent").checked;
+    $("#shipSameHint").hidden = different;
+    ["shipName", "shipAddress", "shipEmail", "shipPhone"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = !different;
+      el.closest(".field").style.opacity = different ? "1" : "0.55";
+    });
+  }
+
+  function dueMetaHTML(data) {
+    const isReceipt = data.paymentTermsValue === "0" || data.paymentTerms === "Due on receipt";
+    const termsLine = `<div><strong>Terms</strong> ${escapeHtml(data.paymentTerms)}</div>`;
+    const dueLine = `<div><strong>Due date</strong> ${escapeHtml(data.dueDate || "—")}</div>`;
+
+    if (data.showBothDueOnInvoice) {
+      return `${termsLine}${dueLine}`;
+    }
+    if (isReceipt) return termsLine;
+    return dueLine;
   }
 
   function headerHTML(data, { continued }) {
@@ -394,14 +751,17 @@
     const logo = data.logoDataUrl
       ? `<img class="doc-logo" src="${data.logoDataUrl}" alt="Logo" />`
       : "";
-    const meta = partyLines(data.from);
+    const metaParts = [data.from.address, data.from.email, data.from.phone].filter(Boolean);
     return `
       <header class="doc-header">
         <div class="doc-brand">
           ${logo}
           <div>
             <p class="doc-company-name">${escapeHtml(data.from.name)}</p>
-            ${meta ? `<p class="doc-company-meta">${nl2brSafe(meta)}</p>` : ""}
+            ${data.tagline ? `<p class="doc-tagline">${escapeHtml(data.tagline)}</p>` : ""}
+            ${metaParts.length ? `<p class="doc-company-meta">${nl2brSafe(metaParts.join("\n"))}</p>` : ""}
+            ${data.from.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.from.gstin)}</p>` : ""}
+            ${data.from.stateCode ? `<p class="doc-state">State code: ${escapeHtml(data.from.stateCode)}</p>` : ""}
           </div>
         </div>
         <div class="doc-title-block">
@@ -409,72 +769,101 @@
           <div class="doc-meta">
             <div><strong>Invoice #</strong> ${escapeHtml(data.invoiceNumber)}</div>
             <div><strong>Date</strong> ${escapeHtml(data.invoiceDate || "—")}</div>
-            ${
-              data.dueMode === "date"
-                ? `<div><strong>Due date</strong> ${escapeHtml(data.dueDate || "—")}</div>`
-                : `<div><strong>Terms</strong> ${escapeHtml(data.paymentTerms)}</div>`
-            }
+            ${dueMetaHTML(data)}
           </div>
         </div>
       </header>`;
   }
 
-  function billToHTML(data, { continued }) {
+  function billShipHTML(data, { continued }) {
     if (continued && !data.repeat.billTo) return "";
+    const toLines = [data.to.address, data.to.email, data.to.phone].filter(Boolean).join("\n");
+    const shipLines = [data.ship.address, data.ship.email, data.ship.phone].filter(Boolean).join("\n");
     return `
       <section class="doc-parties">
         <div>
           <p class="doc-party-label">Bill to</p>
           <p class="doc-party-name">${escapeHtml(data.to.name || "—")}</p>
-          <p class="doc-party-body">${nl2brSafe(partyLines(data.to))}</p>
+          ${data.to.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.to.gstin)}</p>` : ""}
+          ${data.to.stateCode ? `<p class="doc-state">State code: ${escapeHtml(data.to.stateCode)}</p>` : ""}
+          <p class="doc-party-body">${nl2brSafe(toLines)}</p>
+        </div>
+        <div>
+          <p class="doc-party-label">Ship to</p>
+          <p class="doc-party-name">${escapeHtml(data.ship.name || "—")}</p>
+          <p class="doc-party-body">${nl2brSafe(shipLines || (data.shipDifferent ? "" : "Same as bill to"))}</p>
         </div>
       </section>`;
   }
 
   function tableHTML(data, pageItems, { continued, isLast, showHeader }) {
-    const customHeads = data.customColumns
-      .map((col) => `<th>${escapeHtml(col.name || "Column")}</th>`)
-      .join("");
+    const s = {
+      before_item: data.customColumns.filter((c) => c.position === "before_item"),
+      after_item: data.customColumns.filter((c) => c.position === "after_item"),
+      before_qty: data.customColumns.filter((c) => c.position === "before_qty"),
+      after_qty: data.customColumns.filter((c) => c.position === "after_qty"),
+      before_rate: data.customColumns.filter((c) => c.position === "before_rate"),
+      after_rate: data.customColumns.filter((c) => c.position === "after_rate"),
+      before_amount: data.customColumns.filter((c) => c.position === "before_amount"),
+      after_amount: data.customColumns.filter((c) => c.position === "after_amount"),
+    };
+
+    const headCols = (cols) =>
+      cols.map((col) => `<th>${escapeHtml(col.name || "Column")}</th>`).join("");
+    const cellCols = (cols, item) =>
+      cols
+        .map((col) => `<td>${escapeHtml((item.custom && item.custom[col.id]) || "—")}</td>`)
+        .join("");
 
     const colCount = 4 + data.customColumns.length;
-
     const header = showHeader
-      ? `<thead>
-          <tr>
-            <th>Item</th>
-            ${customHeads}
-            <th class="num">Qty</th>
-            <th class="num">Rate</th>
-            <th class="num">Amount</th>
-          </tr>
-        </thead>`
+      ? `<thead><tr>
+          ${headCols(s.before_item)}
+          <th>Item</th>
+          ${headCols(s.after_item)}
+          ${headCols(s.before_qty)}
+          <th class="num">Qty</th>
+          ${headCols(s.after_qty)}
+          ${headCols(s.before_rate)}
+          <th class="num">Rate</th>
+          ${headCols(s.after_rate)}
+          ${headCols(s.before_amount)}
+          <th class="num">Amount</th>
+          ${headCols(s.after_amount)}
+        </tr></thead>`
       : "";
 
     const rows =
       pageItems.length === 0
         ? `<tr><td colspan="${colCount}">No items</td></tr>`
         : pageItems
-            .map((item) => {
-              const customCells = data.customColumns
-                .map((col) => `<td>${escapeHtml((item.custom && item.custom[col.id]) || "—")}</td>`)
-                .join("");
-              return `<tr>
+            .map(
+              (item) => `<tr>
+              ${cellCols(s.before_item, item)}
               <td>${escapeHtml(item.description || "Untitled item")}</td>
-              ${customCells}
+              ${cellCols(s.after_item, item)}
+              ${cellCols(s.before_qty, item)}
               <td class="num">${Number(item.qty) || 0}</td>
+              ${cellCols(s.after_qty, item)}
+              ${cellCols(s.before_rate, item)}
               <td class="num">${money(item.rate, data.currency)}</td>
+              ${cellCols(s.after_rate, item)}
+              ${cellCols(s.before_amount, item)}
               <td class="num">${money(item.amount, data.currency)}</td>
-            </tr>`;
-            })
+              ${cellCols(s.after_amount, item)}
+            </tr>`
+            )
             .join("");
 
-    const cont = continued
+    const contBefore = continued
       ? `<p class="doc-continuation">Continued from previous page</p>`
-      : !isLast && pageItems.length
-        ? `<p class="doc-continuation">Continues on next page</p>`
+      : "";
+    const contAfter =
+      !isLast && pageItems.length
+        ? `<p class="doc-continuation doc-continuation--after">Continues on next page</p>`
         : "";
 
-    return `${cont}<table class="doc-table">${header}<tbody>${rows}</tbody></table>`;
+    return `${contBefore}<table class="doc-table">${header}<tbody>${rows}</tbody></table>${contAfter}`;
   }
 
   function bankingHTML(data) {
@@ -488,19 +877,43 @@
     ]
       .filter(Boolean)
       .join("\n");
-    return `
-      <div class="doc-banking">
-        <h4>Banking details</h4>
-        <p>${nl2brSafe(lines)}</p>
-      </div>`;
+    return `<div class="doc-banking"><h4>Banking details</h4><p>${nl2brSafe(lines)}</p></div>`;
+  }
+
+  function qrSlotHTML(needed) {
+    return `<div class="doc-qr-wrap" data-qr-slot="${needed ? "1" : "0"}"></div>`;
+  }
+
+  function payRowHTML(data, { showBanking, showQr }) {
+    if (!showBanking && !showQr) return "";
+    return `<div class="doc-pay-row">
+      ${showQr ? qrSlotHTML(true) : ""}
+      ${showBanking ? bankingHTML(data) : ""}
+    </div>`;
   }
 
   function totalsHTML(data) {
+    const chargeRows = data.charges
+      .filter((c) => c.label || c.amount)
+      .map(
+        (c) =>
+          `<div class="doc-totals-row"><span>${escapeHtml(c.label || "Charge")}</span><span>${money(c.amount, data.currency)}</span></div>`
+      )
+      .join("");
+    const paid = data.amountPaid || 0;
+    const balance = data.totals.balance != null ? data.totals.balance : data.totals.grand - paid;
     return `
       <div class="doc-totals">
         <div class="doc-totals-row"><span>Items total</span><span>${money(data.totals.subtotal, data.currency)}</span></div>
+        ${chargeRows}
         <div class="doc-totals-row"><span>Tax (${data.totals.taxPercent}%)</span><span>${money(data.totals.tax, data.currency)}</span></div>
         <div class="doc-totals-row grand"><span>TOTAL</span><span>${money(data.totals.grand, data.currency)}</span></div>
+        ${
+          paid > 0
+            ? `<div class="doc-totals-row"><span>Paid</span><span>${money(paid, data.currency)}</span></div>
+               <div class="doc-totals-row"><span>Balance</span><span>${money(balance, data.currency)}</span></div>`
+            : ""
+        }
       </div>`;
   }
 
@@ -511,6 +924,28 @@
         ${data.notes ? `<h4>Notes</h4><p>${nl2brSafe(data.notes)}</p>` : ""}
         ${data.terms ? `<h4 style="margin-top:3mm">Terms &amp; conditions</h4><p>${nl2brSafe(data.terms)}</p>` : ""}
       </div>`;
+  }
+
+  function mountQr(slot, data) {
+    if (!slot) return;
+    const upi = buildUpiString(data);
+    const qrBox = document.createElement("div");
+    qrBox.className = "doc-qr";
+    slot.appendChild(qrBox);
+    const caption = document.createElement("div");
+    caption.className = "doc-qr-caption";
+    caption.innerHTML = `Scan to pay<br /><strong>${money(data.totals.grand, data.currency)}</strong><br />${escapeHtml(data.bank.upi)}`;
+    slot.appendChild(caption);
+    if (window.QRCode) {
+      new QRCode(qrBox, {
+        text: upi,
+        width: 72,
+        height: 72,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    } else {
+      qrBox.textContent = "QR unavailable";
+    }
   }
 
   function applyTheme(color) {
@@ -525,14 +960,11 @@
     const root = $("#pages-root");
     const scaleWrap = $("#preview-scale");
 
-    // Reset transform before measuring new page sizes (fixes A4↔A3 glitches)
     root.style.transform = "none";
     root.style.width = "";
     scaleWrap.style.height = "auto";
 
-    const perPage = rowsPerPage(data);
-    const lastCap = lastPageItemCapacity(data);
-    const chunks = chunkItems(data.items, perPage, lastCap);
+    const chunks = chunkItemsSmart(data.items, data);
     const totalPages = chunks.length;
 
     $("#previewMeta").textContent = `Live document — ${data.pageSize} · ${
@@ -540,12 +972,12 @@
     } · ${totalPages} page${totalPages === 1 ? "" : "s"}`;
 
     const pill = $("#invoicePill");
-    if (pill) {
-      pill.textContent = `INV | ${data.invoiceNumber.replace(/^INV-?/i, "")}`;
-    }
+    if (pill) pill.textContent = `INV | ${data.invoiceNumber.replace(/^INV-?/i, "")}`;
 
     root.innerHTML = "";
     root.style.setProperty("--doc-accent", data.themeColor);
+
+    const qrEnabled = data.showQr && Boolean(data.bank.upi) && data.totals.grand > 0;
 
     chunks.forEach((pageItems, index) => {
       const pageNo = index + 1;
@@ -561,7 +993,7 @@
 
       const bankingOnThisPage =
         hasBanking(data.bank) && (isLast || data.repeat.banking);
-      const qrNeeded = isLast && data.showQr && data.bank.upi && data.totals.grand > 0;
+      const qrOnThisPage = qrEnabled && (isLast || data.qrEveryPage);
 
       let summaryBlock = "";
       if (isLast) {
@@ -569,16 +1001,17 @@
             <div class="doc-bottom">
               <div class="doc-bottom__meta">
                 ${notesHTML(data)}
-                ${bankingOnThisPage ? bankingHTML(data) : ""}
-                <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
               </div>
               <div class="doc-bottom__totals">${totalsHTML(data)}</div>
             </div>
           </section>`;
-      } else if (bankingOnThisPage) {
+      } else if (bankingOnThisPage || qrOnThisPage) {
         summaryBlock = `<section class="page-sheet__summary">
             <div class="doc-bottom">
-              <div class="doc-bottom__meta">${bankingHTML(data)}</div>
+              <div class="doc-bottom__meta">
+                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+              </div>
               <div class="doc-bottom__totals"></div>
             </div>
           </section>`;
@@ -588,7 +1021,7 @@
         <div class="page-sheet__inner">
           <div class="page-sheet__main">
             ${headerHTML(data, { continued })}
-            ${billToHTML(data, { continued })}
+            ${billShipHTML(data, { continued })}
             <div class="doc-table-box">
               ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
             </div>
@@ -606,26 +1039,9 @@
 
       root.appendChild(sheet);
 
-      if (qrNeeded) {
+      if (qrOnThisPage) {
         const slot = sheet.querySelector('[data-qr-slot="1"]');
-        const upi = buildUpiString(data);
-        const qrBox = document.createElement("div");
-        qrBox.className = "doc-qr";
-        slot.appendChild(qrBox);
-        const caption = document.createElement("div");
-        caption.className = "doc-qr-caption";
-        caption.innerHTML = `Scan to pay<br /><strong>${money(data.totals.grand, data.currency)}</strong><br />${escapeHtml(data.bank.upi)}`;
-        slot.appendChild(caption);
-        if (window.QRCode) {
-          new QRCode(qrBox, {
-            text: upi,
-            width: 72,
-            height: 72,
-            correctLevel: QRCode.CorrectLevel.M,
-          });
-        } else {
-          qrBox.textContent = "QR unavailable";
-        }
+        mountQr(slot, data);
       }
     });
 
@@ -639,7 +1055,6 @@
     const first = $(".page-sheet", scaleWrap);
     if (!first || !stage || !root) return;
 
-    // Clear previous scale so offsetWidth reflects true page size
     root.style.transform = "none";
     scaleWrap.style.height = "auto";
     void first.offsetWidth;
@@ -651,21 +1066,15 @@
     const scale = Math.min(1, stageWidth / sheetWidth);
     root.style.transform = `scale(${scale})`;
     root.style.transformOrigin = "top center";
-
-    const naturalHeight = root.scrollHeight;
-    const naturalWidth = root.scrollWidth;
-    scaleWrap.style.height = `${Math.ceil(naturalHeight * scale)}px`;
+    scaleWrap.style.height = `${Math.ceil(root.scrollHeight * scale)}px`;
     scaleWrap.style.width = "100%";
-    // Prevent horizontal bleed after scaling larger sheets (A3)
     scaleWrap.style.overflow = "hidden";
-    void naturalWidth;
   }
 
   function scheduleFitPreviewScale() {
     cancelAnimationFrame(state.scaleRaf);
     state.scaleRaf = requestAnimationFrame(() => {
       fitPreviewScale();
-      // Second pass after fonts/layout settle (page size switches)
       state.scaleRaf = requestAnimationFrame(() => fitPreviewScale());
     });
   }
@@ -703,6 +1112,11 @@
       if (customInput) {
         item.custom = item.custom || {};
         item.custom[customInput.dataset.custom] = customInput.value;
+        const amountCell = row.querySelector(".amount-cell");
+        if (amountCell) {
+          amountCell.textContent = money(lineAmount(item), $("#currency").value);
+        }
+        updateEditorTotals();
         renderPages();
         return;
       }
@@ -712,24 +1126,40 @@
       item[field] = field === "description" ? fieldInput.value : Number(fieldInput.value);
       const amountCell = row.querySelector(".amount-cell");
       if (amountCell) {
-        amountCell.textContent = money(
-          (Number(item.qty) || 0) * (Number(item.rate) || 0),
-          $("#currency").value
-        );
+        amountCell.textContent = money(lineAmount(item), $("#currency").value);
       }
       updateEditorTotals();
       renderPages();
+    });
+
+    // Evaluate arithmetic / keep % discounts on blur in custom columns
+    $("#items-body").addEventListener("focusout", (e) => {
+      const customInput = e.target.closest("input[data-custom]");
+      if (!customInput) return;
+      const row = customInput.closest("tr");
+      const item = state.items.find((i) => i.id === row.dataset.id);
+      if (!item) return;
+      const evaluated = evalArithmetic(customInput.value);
+      if (evaluated.ok) {
+        customInput.value = evaluated.value;
+        item.custom[customInput.dataset.custom] = evaluated.value;
+        customInput.classList.toggle("is-calculated", true);
+        customInput.classList.toggle("is-discount", !!(evaluated.isPercent || evaluated.isFlat));
+        const amountCell = row.querySelector(".amount-cell");
+        if (amountCell) {
+          amountCell.textContent = money(lineAmount(item), $("#currency").value);
+        }
+        updateEditorTotals();
+        renderPages();
+      }
     });
 
     $("#items-body").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-remove]");
       if (!btn) return;
       const row = btn.closest("tr");
-      if (state.items.length === 1) {
-        state.items[0] = blankItem();
-      } else {
-        state.items = state.items.filter((i) => i.id !== row.dataset.id);
-      }
+      if (state.items.length === 1) state.items[0] = blankItem();
+      else state.items = state.items.filter((i) => i.id !== row.dataset.id);
       renderItemsEditor();
       updateEditorTotals();
       renderPages();
@@ -750,19 +1180,29 @@
       "themeColor",
       "notes",
       "terms",
+      "fromTagline",
       "fromName",
       "fromAddress",
-      "fromCity",
-      "fromCountry",
-      "fromContact",
+      "fromGstin",
+      "fromStateCode",
+      "fromWebsite",
+      "fromEmail",
+      "fromPhone",
       "toName",
       "toAddress",
-      "toCity",
-      "toCountry",
-      "toContact",
+      "toGstin",
+      "toStateCode",
+      "toEmail",
+      "toPhone",
+      "shipName",
+      "shipAddress",
+      "shipEmail",
+      "shipPhone",
+      "shipDifferent",
       "dueDate",
       "paymentTerms",
-      "customTerms",
+      "showBothDueOnInvoice",
+      "amountPaid",
       "bankName",
       "accountName",
       "accountNumber",
@@ -778,29 +1218,43 @@
       "repeatTableHeader",
       "repeatBanking",
       "repeatPageNumbers",
+      "qrEveryPage",
     ];
 
     formIds.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const evt =
-        el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color"
+        el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color" || el.type === "date"
           ? "change"
           : "input";
       el.addEventListener(evt, () => {
         if (id === "pageSize") syncPageSizeControls("pageSize", el.value);
-        if (id === "paymentTerms") syncDueModeUI();
-        if (id === "currency" || id === "taxPercent" || id === "autoRound") {
-          renderItemsEditor();
+        if (id === "paymentTerms" || id === "invoiceDate" || id === "dueDate") {
+          syncPaymentDueUI({
+            skipDueDateWrite: id === "dueDate" && isCustomTerms(),
+          });
+        }
+        if (id === "shipDifferent") syncShipUI();
+        if (
+          id === "currency" ||
+          id === "taxPercent" ||
+          id === "autoRound" ||
+          id === "amountPaid"
+        ) {
+          if (id === "currency") renderItemsEditor();
           updateEditorTotals();
         }
         renderPages();
       });
     });
 
-    $$('input[name="dueMode"]').forEach((radio) => {
-      radio.addEventListener("change", () => {
-        syncDueModeUI();
+    // Live typing updates for amount paid / tax while typing
+    ["amountPaid", "taxPercent"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", () => {
+        updateEditorTotals();
         renderPages();
       });
     });
@@ -836,6 +1290,15 @@
     const downloadBtn = $("#btn-download");
     if (downloadBtn) downloadBtn.addEventListener("click", () => window.print());
 
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("#columns-modal").hidden) {
+        closeColumnsModal();
+        return;
+      }
+      if (!$("#settings-modal").hidden) closeSettings();
+    });
+
     window.addEventListener("resize", () => scheduleFitPreviewScale());
   }
 
@@ -843,26 +1306,34 @@
     $("#invoiceNumber").value = defaultInvoiceNumber();
     $("#documentTitle").value = "INVOICE";
     $("#invoiceDate").value = todayISO();
-    $("#dueDate").value = addDaysISO(30);
     $("#currency").value = "INR";
     $("#themeColor").value = "#4066E6";
     $("#notes").value = "Thank you for your business.";
     $("#terms").value = "";
+    $("#fromTagline").value = "Your Partner in Growth";
     $("#fromName").value = "Number7 Studio";
-    $("#fromAddress").value = "12 Innovation Lane";
-    $("#fromCity").value = "Bengaluru, KA 560001";
-    $("#fromCountry").value = "India";
-    $("#fromContact").value = "billing@number7ai.com";
+    $("#fromAddress").value = "12 Innovation Lane\nBengaluru, KA 560001\nIndia";
+    $("#fromGstin").value = "29AABCN1234A1Z5";
+    $("#fromStateCode").value = "29";
+    $("#fromWebsite").value = "www.number7ai.com";
+    $("#fromEmail").value = "billing@number7ai.com";
+    $("#fromPhone").value = "+91 98765 43210";
     $("#toName").value = "Acme Retail Pvt Ltd";
-    $("#toAddress").value = "88 Market Road";
-    $("#toCity").value = "Mumbai, MH 400001";
-    $("#toCountry").value = "India";
-    $("#toContact").value = "";
+    $("#toAddress").value = "88 Market Road\nMumbai, MH 400001";
+    $("#toGstin").value = "27AABCA9876B1Z2";
+    $("#toStateCode").value = "27";
+    $("#toEmail").value = "ap@acme.example";
+    $("#toPhone").value = "+91 91234 56789";
+    $("#shipDifferent").checked = false;
+    $("#shipName").value = "";
+    $("#shipAddress").value = "";
+    $("#shipEmail").value = "";
+    $("#shipPhone").value = "";
     $("#taxPercent").value = "18";
     $("#autoRound").checked = false;
-    $('input[name="dueMode"][value="date"]').checked = true;
-    $("#paymentTerms").value = "Net 30";
-    $("#customTerms").value = "";
+    $("#paymentTerms").value = "30";
+    $("#showBothDueOnInvoice").checked = true;
+    $("#amountPaid").value = "0";
     $("#bankName").value = "HDFC Bank";
     $("#accountName").value = "Number7 Studio";
     $("#accountNumber").value = "50200012345678";
@@ -877,18 +1348,22 @@
     $("#repeatTableHeader").checked = true;
     $("#repeatBanking").checked = false;
     $("#repeatPageNumbers").checked = true;
+    $("#qrEveryPage").checked = false;
     $("#logoFile").value = "";
     state.logoDataUrl = "";
     state.customColumns = [];
-    state.items = Array.from({ length: 18 }, (_, i) => ({
+    state.charges = [];
+    state.items = Array.from({ length: 36 }, (_, i) => ({
       id: uid("item"),
       description: `Service line ${i + 1}`,
       qty: 1,
       rate: 1000 + i * 250,
       custom: {},
     }));
-    syncDueModeUI();
+    syncPaymentDueUI();
+    syncShipUI();
     renderColumnsEditor();
+    renderChargesEditor();
     renderItemsEditor();
     updateEditorTotals();
     renderPages();
@@ -898,6 +1373,7 @@
     bindSectionNav();
     bindSettingsModal();
     bindColumns();
+    bindCharges();
     bindItems();
     bindForm();
     initDefaults();

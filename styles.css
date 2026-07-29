@@ -40,6 +40,8 @@ body {
   color: var(--ink);
   background: var(--canvas);
   -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 button,
@@ -460,9 +462,15 @@ button {
 }
 
 .field > span {
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted);
+}
+
+.items-table input.is-discount {
+  background: #fff4e5;
+  font-weight: 700;
+  color: #9a3412;
 }
 
 .field input[type="text"],
@@ -773,6 +781,10 @@ button {
   position: relative;
   background: #fff;
   color: var(--ink);
+  font-family: var(--font);
+  font-size: 10pt;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
   box-shadow: var(--shadow-sheet);
   overflow: hidden;
   display: flex;
@@ -799,10 +811,11 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  justify-content: flex-start;
 }
 
 .doc-table-box {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -858,17 +871,21 @@ button {
 
 .doc-company-name {
   margin: 0;
+  font-family: var(--font);
   font-size: 15pt;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   word-break: break-word;
 }
 
 .doc-company-meta {
-  margin: 3px 0 0;
-  font-size: 8.5pt;
+  margin: 4px 0 0;
+  font-family: var(--font);
+  font-size: 9pt;
+  font-weight: 500;
   color: #5c6478;
-  line-height: 1.4;
+  line-height: 1.45;
   white-space: pre-line;
 }
 
@@ -878,16 +895,19 @@ button {
 
 .doc-title {
   margin: 0;
-  font-size: 22pt;
+  font-family: var(--font);
+  font-size: 20pt;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--doc-accent, var(--brand));
-  line-height: 1;
+  line-height: 1.05;
 }
 
 .doc-meta {
   margin: 6px 0 0;
-  font-size: 8.5pt;
+  font-family: var(--font);
+  font-size: 9pt;
+  font-weight: 500;
   line-height: 1.55;
   color: #374151;
 }
@@ -909,6 +929,7 @@ button {
 
 .doc-party-label {
   margin: 0 0 3px;
+  font-family: var(--font);
   font-size: 8pt;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -918,13 +939,17 @@ button {
 
 .doc-party-name {
   margin: 0;
+  font-family: var(--font);
   font-weight: 700;
   font-size: 11pt;
+  line-height: 1.25;
 }
 
 .doc-party-body {
-  margin: 3px 0 0;
-  font-size: 8.5pt;
+  margin: 4px 0 0;
+  font-family: var(--font);
+  font-size: 9pt;
+  font-weight: 500;
   color: #4b5563;
   line-height: 1.45;
   white-space: pre-line;
@@ -934,14 +959,17 @@ button {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 9pt;
+  font-family: var(--font);
+  font-size: 9.5pt;
+  font-weight: 500;
 }
 
 .doc-table th {
   text-align: left;
-  padding: 6px 8px;
+  padding: 6px 7px;
   background: var(--doc-accent, var(--brand));
   color: #fff;
+  font-family: var(--font);
   font-size: 8pt;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -952,20 +980,28 @@ button {
 .doc-table td.num {
   text-align: right;
   width: 16%;
+  font-variant-numeric: tabular-nums;
 }
 
 .doc-table td {
-  padding: 6px 8px;
+  padding: 5px 7px;
   border-bottom: 1px solid #e5e7eb;
   vertical-align: top;
   word-break: break-word;
+  line-height: 1.35;
 }
 
 .doc-continuation {
-  margin: 0 0 3mm;
+  margin: 0 0 2.5mm;
+  font-family: var(--font);
   font-size: 8pt;
+  font-weight: 500;
   color: #6b7280;
   font-style: italic;
+}
+
+.doc-continuation--after {
+  margin: 2.5mm 0 0;
 }
 
 .doc-bottom {
@@ -986,18 +1022,22 @@ button {
 .doc-notes h4,
 .doc-banking h4 {
   margin: 0 0 2px;
+  font-family: var(--font);
   font-size: 8pt;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #6b7280;
+  font-weight: 700;
 }
 
 .doc-notes p,
 .doc-banking p {
   margin: 0;
-  font-size: 8pt;
+  font-family: var(--font);
+  font-size: 9pt;
+  font-weight: 500;
   color: #374151;
-  line-height: 1.4;
+  line-height: 1.45;
   white-space: pre-line;
 }
 
@@ -1035,14 +1075,18 @@ button {
 .doc-qr-caption {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 8pt;
+  font-family: var(--font);
+  font-size: 8.5pt;
+  font-weight: 500;
   color: #6b7280;
   line-height: 1.35;
 }
 
 .doc-totals {
   width: 100%;
-  font-size: 9pt;
+  font-family: var(--font);
+  font-size: 9.5pt;
+  font-weight: 500;
   box-sizing: border-box;
 }
 
@@ -1060,11 +1104,12 @@ button {
   background: var(--doc-accent, var(--brand));
   color: #fff;
   font-weight: 700;
-  font-size: 11pt;
+  font-size: 11.5pt;
   border-radius: 0;
 }
 
 .powered {
+  font-family: var(--font);
   font-size: 7.5pt;
   color: #9ca3af;
 }
@@ -1321,4 +1366,210 @@ body.modal-open {
   .modal {
     display: none !important;
   }
+}
+
+/* ---------- New layout helpers ---------- */
+
+.field-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.block__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.party-card {
+  border: 1px solid var(--line-soft);
+  background: #fafbfe;
+  padding: 0.95rem;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.party-card__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.party-grid .block {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.doc-tagline {
+  margin: 2px 0 0;
+  font-family: var(--font);
+  font-size: 9pt;
+  font-weight: 500;
+  font-style: italic;
+  color: #6b7280;
+}
+
+.doc-status {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e5e7eb;
+  font-family: var(--font);
+  font-size: 9pt;
+  color: #4b5563;
+}
+
+.charges-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.charge-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+.column-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: end;
+  padding: 0.65rem;
+  border: 1px solid var(--line-soft);
+  background: #fafbfe;
+}
+
+.column-row__idx {
+  width: 1.4rem;
+  height: 2.45rem;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.column-row__moves {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.items-table input.is-calculated {
+  background: var(--brand-soft);
+  font-weight: 600;
+}
+
+.muted code {
+  font-size: 0.8em;
+  background: var(--canvas);
+  padding: 0.1rem 0.3rem;
+}
+
+@media (max-width: 1100px) {
+  .field-grid--3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .field-grid--3 {
+    grid-template-columns: 1fr;
+  }
+
+  .column-row {
+    grid-template-columns: 1fr;
+  }
+
+  .charge-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ---------- Tabs row with Settings on the right ---------- */
+
+.tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 1.1rem 0.85rem;
+  flex-shrink: 0;
+}
+
+.tabs-row .tabs {
+  padding: 0;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.items-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.due-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.due-date-field input:disabled {
+  background: #eef0f5;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.due-lock {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.due-lock.is-unlocked {
+  color: var(--brand);
+}
+
+.doc-pay-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 3.5mm;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.doc-pay-row .doc-qr-wrap {
+  margin-top: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.doc-pay-row .doc-banking {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.doc-gstin,
+.doc-state {
+  margin: 2px 0 0;
+  font-family: var(--font);
+  font-size: 8.5pt;
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.modal__dialog--sm {
+  width: min(560px, 100%);
 }
