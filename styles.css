@@ -40,6 +40,8 @@ body {
   color: var(--ink);
   background: var(--canvas);
   -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 button,
@@ -460,9 +462,79 @@ button {
 }
 
 .field > span {
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted);
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 9.5pt;
+}
+
+.doc-table th {
+  text-align: left;
+  padding: 6px 7px;
+  background: var(--doc-accent, var(--brand));
+  color: #fff;
+  font-size: 8pt;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.doc-company-name {
+  margin: 0;
+  font-size: 16pt;
+  font-weight: 700;
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.doc-company-meta {
+  margin: 3px 0 0;
+  font-size: 9pt;
+  color: #5c6478;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.doc-title {
+  margin: 0;
+  font-size: 22pt;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--doc-accent, var(--brand));
+  line-height: 1;
+}
+
+.doc-meta {
+  margin: 6px 0 0;
+  font-size: 9pt;
+  line-height: 1.55;
+  color: #374151;
+}
+
+.doc-party-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 11.5pt;
+}
+
+.doc-party-body {
+  margin: 3px 0 0;
+  font-size: 9pt;
+  color: #4b5563;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.items-table input.is-discount {
+  background: #fff4e5;
+  font-weight: 700;
+  color: #9a3412;
 }
 
 .field input[type="text"],

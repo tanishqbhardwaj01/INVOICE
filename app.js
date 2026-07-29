@@ -106,23 +106,49 @@
     return escapeHtml(str).replace(/\n/g, "<br />");
   }
 
-  /** Safe arithmetic: only digits, spaces, . + - * / ( ) */
+  /**
+   * Cell helpers:
+   * - "10*5" → evaluates to 50 (display)
+   * - "-15%" → kept as-is; reduces line amount by 15%
+   * - "+10%" → increases line amount by 10%
+   */
   function evalArithmetic(raw) {
     const text = String(raw ?? "").trim();
     if (!text) return { ok: false, value: text };
+
+    if (/^[+\-]?\d+(\.\d+)?\s*%$/.test(text)) {
+      return { ok: true, value: text.replace(/\s+/g, ""), isPercent: true };
+    }
+
     if (!/[+\-*/()]/.test(text)) return { ok: false, value: text };
     if (!/^[\d\s.+\-*/()]+$/.test(text)) return { ok: false, value: text };
     try {
-      // eslint-disable-next-line no-new-func
       const result = Function(`"use strict"; return (${text});`)();
       if (typeof result !== "number" || !Number.isFinite(result)) {
         return { ok: false, value: text };
       }
       const rounded = Math.round(result * 100) / 100;
-      return { ok: true, value: String(rounded) };
+      return { ok: true, value: String(rounded), isPercent: false };
     } catch {
       return { ok: false, value: text };
     }
+  }
+
+  function discountMultiplier(item) {
+    let factor = 1;
+    Object.values(item.custom || {}).forEach((raw) => {
+      const m = String(raw ?? "")
+        .trim()
+        .match(/^([+\-]?\d+(?:\.\d+)?)\s*%$/);
+      if (!m) return;
+      factor *= 1 + Number(m[1]) / 100;
+    });
+    return factor;
+  }
+
+  function lineAmount(item) {
+    const base = (Number(item.qty) || 0) * (Number(item.rate) || 0);
+    return Math.round(base * discountMultiplier(item) * 100) / 100;
   }
 
   function blankItem() {
@@ -200,11 +226,7 @@
     const taxPercent = Number($("#taxPercent").value) || 0;
     const autoRound = $("#autoRound").checked;
     const amountPaid = Number($("#amountPaid").value) || 0;
-    let subtotal = state.items.reduce((sum, item) => {
-      const qty = Number(item.qty) || 0;
-      const rate = Number(item.rate) || 0;
-      return sum + qty * rate;
-    }, 0);
+    let subtotal = state.items.reduce((sum, item) => sum + lineAmount(item), 0);
     const charges = chargesTotal();
     let taxable = subtotal + charges;
     let tax = (taxable * taxPercent) / 100;
@@ -300,7 +322,7 @@
       items: state.items.map((item) => ({
         ...item,
         custom: { ...(item.custom || {}) },
-        amount: (Number(item.qty) || 0) * (Number(item.rate) || 0),
+        amount: lineAmount(item),
       })),
       totals,
     };
@@ -334,8 +356,21 @@
     return rows;
   }
 
+  /** How many items fit on a SINGLE page (header + parties + summary). */
+  function singlePageCapacity(data) {
+    let cap = data.pageSize === "A3" ? 16 : 10;
+    if (data.pageSize === "Legal") cap = 12;
+    if (data.orientation === "landscape") cap = Math.max(4, cap - 3);
+    if (data.notes || data.terms) cap -= 1;
+    if (hasBanking(data.bank)) cap -= 1;
+    if (data.showQr && data.bank.upi) cap -= 2;
+    if (data.charges.length) cap -= 1;
+    if (data.customColumns.length >= 3) cap -= 1;
+    return Math.max(4, cap);
+  }
+
   function lastPageItemCapacity(data) {
-    // Closing page must leave room for notes / banking / QR / totals
+    // Closing page of a multi-page invoice (header + items + summary)
     let cap = data.pageSize === "A3" ? 10 : 5;
     if (data.orientation === "landscape") cap = Math.max(2, cap - 2);
     if (data.notes || data.terms) cap = Math.max(2, cap - 1);
@@ -346,17 +381,18 @@
   }
 
   /**
-   * Pack so every non-last page is as full as possible.
-   * Last page only holds what fits with the summary block.
+   * One page if everything fits with the summary.
+   * Extra pages only when page-1 item limit is exceeded.
    */
   function chunkItemsSmart(items, data) {
     if (!items.length) return [[]];
 
+    const singleCap = singlePageCapacity(data);
+    if (items.length <= singleCap) return [items.slice()];
+
     const firstRows = rowsPerPage(data, { continued: false });
     const midRows = rowsPerPage(data, { continued: true });
     const lastRows = Math.max(1, lastPageItemCapacity(data));
-
-    if (items.length <= lastRows) return [items.slice()];
 
     const chunks = [];
     let remaining = items.slice();
@@ -612,7 +648,7 @@
     return cols
       .map(
         (col) =>
-          `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)} · e.g. 10*5" /></td>`
+          `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)} · 10*5 or -15%" /></td>`
       )
       .join("");
   }
@@ -640,7 +676,7 @@
 
     body.innerHTML = state.items
       .map((item) => {
-        const amount = (Number(item.qty) || 0) * (Number(item.rate) || 0);
+        const amount = lineAmount(item);
         return `
         <tr data-id="${item.id}">
           ${tdForCols(s.before_item, item)}
@@ -1056,6 +1092,11 @@
       if (customInput) {
         item.custom = item.custom || {};
         item.custom[customInput.dataset.custom] = customInput.value;
+        const amountCell = row.querySelector(".amount-cell");
+        if (amountCell) {
+          amountCell.textContent = money(lineAmount(item), $("#currency").value);
+        }
+        updateEditorTotals();
         renderPages();
         return;
       }
@@ -1065,16 +1106,13 @@
       item[field] = field === "description" ? fieldInput.value : Number(fieldInput.value);
       const amountCell = row.querySelector(".amount-cell");
       if (amountCell) {
-        amountCell.textContent = money(
-          (Number(item.qty) || 0) * (Number(item.rate) || 0),
-          $("#currency").value
-        );
+        amountCell.textContent = money(lineAmount(item), $("#currency").value);
       }
       updateEditorTotals();
       renderPages();
     });
 
-    // Evaluate arithmetic expressions on blur in custom columns
+    // Evaluate arithmetic / keep % discounts on blur in custom columns
     $("#items-body").addEventListener("focusout", (e) => {
       const customInput = e.target.closest("input[data-custom]");
       if (!customInput) return;
@@ -1085,7 +1123,13 @@
       if (evaluated.ok) {
         customInput.value = evaluated.value;
         item.custom[customInput.dataset.custom] = evaluated.value;
-        customInput.classList.add("is-calculated");
+        customInput.classList.toggle("is-calculated", true);
+        customInput.classList.toggle("is-discount", !!evaluated.isPercent);
+        const amountCell = row.querySelector(".amount-cell");
+        if (amountCell) {
+          amountCell.textContent = money(lineAmount(item), $("#currency").value);
+        }
+        updateEditorTotals();
         renderPages();
       }
     });
