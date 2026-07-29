@@ -389,6 +389,19 @@ button {
   display: none !important;
 }
 
+/* Off-screen page measurer for accurate item pagination */
+#measure-root {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* ---------- Content blocks ---------- */
 
 .block {
@@ -823,6 +836,9 @@ button {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* Never shrink below the real page size inside the preview flex column */
+  flex: 0 0 auto;
+  flex-shrink: 0;
 }
 
 .page-sheet,
@@ -861,10 +877,11 @@ button {
 }
 
 .doc-table-box {
-  flex: 0 1 auto;
-  min-height: 0;
+  /* Do not flex-shrink rows — pagination must move overflow items to the next page */
+  flex: 0 0 auto;
+  min-height: auto;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .page-sheet__summary {
