@@ -1442,3 +1442,85 @@ body.modal-open {
     align-items: stretch;
   }
 }
+
+/* ---------- Tabs row with Settings on the right ---------- */
+
+.tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 1.1rem 0.85rem;
+  flex-shrink: 0;
+}
+
+.tabs-row .tabs {
+  padding: 0;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.items-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.due-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.due-date-field input:disabled {
+  background: #eef0f5;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.due-lock {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.due-lock.is-unlocked {
+  color: var(--brand);
+}
+
+.doc-pay-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 3.5mm;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.doc-pay-row .doc-qr-wrap {
+  margin-top: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.doc-pay-row .doc-banking {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.doc-gstin {
+  margin: 2px 0 0;
+  font-size: 8pt;
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.modal__dialog--sm {
+  width: min(560px, 100%);
+}
