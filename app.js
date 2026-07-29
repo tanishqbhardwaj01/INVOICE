@@ -51,9 +51,27 @@
   }
 
   function addDaysISO(days) {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
+    return addDaysToISO(todayISO(), days);
+  }
+
+  function addDaysToISO(isoDate, days) {
+    const base = isoDate || todayISO();
+    const d = new Date(`${base}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      const fallback = new Date();
+      fallback.setDate(fallback.getDate() + Number(days) || 0);
+      return fallback.toISOString().slice(0, 10);
+    }
+    d.setDate(d.getDate() + (Number(days) || 0));
     return d.toISOString().slice(0, 10);
+  }
+
+  function daysBetween(fromISO, toISO) {
+    if (!fromISO || !toISO) return 0;
+    const a = new Date(`${fromISO}T12:00:00`);
+    const b = new Date(`${toISO}T12:00:00`);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+    return Math.round((b - a) / 86400000);
   }
 
   function defaultInvoiceNumber() {
@@ -119,17 +137,59 @@
     return { id: uid("chg"), label: "", amount: 0 };
   }
 
-  function getDueMode() {
-    const checked = $('input[name="dueMode"]:checked');
-    return checked ? checked.value : "date";
+  function isCustomTerms() {
+    return $("#paymentTerms").value === "custom";
   }
 
   function getPaymentTermsLabel() {
     const sel = $("#paymentTerms").value;
+    if (sel === "0") return "Due on receipt";
     if (sel === "custom") {
-      return $("#customTerms").value.trim() || "Custom terms";
+      const days = daysBetween($("#invoiceDate").value, $("#dueDate").value);
+      if (days === 0) return "Due on receipt";
+      if (days < 0) return "Custom terms";
+      return `Net ${days}`;
     }
-    return sel;
+    return `Net ${sel}`;
+  }
+
+  function syncPaymentDueUI({ skipDueDateWrite = false } = {}) {
+    const terms = $("#paymentTerms").value;
+    const dueInput = $("#dueDate");
+    const lockHint = $("#dueLockHint");
+    const summary = $("#dueSummary");
+    const invoiceDate = $("#invoiceDate").value || todayISO();
+    const custom = terms === "custom";
+
+    dueInput.disabled = !custom;
+    if (lockHint) {
+      lockHint.textContent = custom ? "Unlocked" : "Locked to terms";
+      lockHint.classList.toggle("is-unlocked", custom);
+    }
+
+    if (!custom && !skipDueDateWrite) {
+      const n = Number(terms) || 0;
+      dueInput.value = addDaysToISO(invoiceDate, n);
+    }
+
+    if (summary) {
+      if (terms === "0") {
+        summary.textContent = "Due on receipt · due date matches invoice date";
+      } else if (custom) {
+        const days = daysBetween(invoiceDate, dueInput.value);
+        if (!dueInput.value) {
+          summary.textContent = "Due on date · pick a due date (terms = day count)";
+        } else if (days === 0) {
+          summary.textContent = "Custom · due on receipt (0 days from invoice date)";
+        } else if (days < 0) {
+          summary.textContent = "Custom · due date is before invoice date";
+        } else {
+          summary.textContent = `Custom · Net ${days} · ${days} day${days === 1 ? "" : "s"} from invoice date`;
+        }
+      } else {
+        summary.textContent = `Net ${terms} · due date follows invoice date`;
+      }
+    }
   }
 
   function chargesTotal() {
@@ -139,6 +199,7 @@
   function computeTotals() {
     const taxPercent = Number($("#taxPercent").value) || 0;
     const autoRound = $("#autoRound").checked;
+    const amountPaid = Number($("#amountPaid").value) || 0;
     let subtotal = state.items.reduce((sum, item) => {
       const qty = Number(item.qty) || 0;
       const rate = Number(item.rate) || 0;
@@ -152,7 +213,8 @@
       grand = Math.round(grand);
       tax = grand - taxable;
     }
-    return { subtotal, charges, tax, taxPercent, grand };
+    const balance = grand - amountPaid;
+    return { subtotal, charges, tax, taxPercent, grand, amountPaid, balance };
   }
 
   function sortedColumns() {
@@ -170,6 +232,7 @@
     const currency = $("#currency").value;
     const totals = computeTotals();
     const shipDifferent = $("#shipDifferent").checked;
+    const termsValue = $("#paymentTerms").value;
     return {
       invoiceNumber: $("#invoiceNumber").value.trim() || "—",
       documentTitle: $("#documentTitle").value.trim() || "INVOICE",
@@ -182,6 +245,7 @@
       from: {
         name: $("#fromName").value.trim() || "Your Company",
         address: $("#fromAddress").value.trim(),
+        gstin: $("#fromGstin").value.trim(),
         website: $("#fromWebsite").value.trim(),
         email: $("#fromEmail").value.trim(),
         phone: $("#fromPhone").value.trim(),
@@ -189,6 +253,7 @@
       to: {
         name: $("#toName").value.trim(),
         address: $("#toAddress").value.trim(),
+        gstin: $("#toGstin").value.trim(),
         email: $("#toEmail").value.trim(),
         phone: $("#toPhone").value.trim(),
       },
@@ -206,10 +271,10 @@
             email: $("#toEmail").value.trim(),
             phone: $("#toPhone").value.trim(),
           },
-      dueMode: getDueMode(),
       dueDate: $("#dueDate").value,
       paymentTerms: getPaymentTermsLabel(),
-      paymentStatus: $("#paymentStatus").value,
+      paymentTermsValue: termsValue,
+      showBothDueOnInvoice: $("#showBothDueOnInvoice").checked,
       amountPaid: Number($("#amountPaid").value) || 0,
       bank: {
         name: $("#bankName").value.trim(),
@@ -219,6 +284,7 @@
         upi: $("#upiId").value.trim(),
       },
       showQr: $("#showQr").checked,
+      qrEveryPage: $("#qrEveryPage").checked,
       pageSize: $("#pageSize").value,
       orientation: $("#orientation").value,
       repeat: {
@@ -238,12 +304,6 @@
       })),
       totals,
     };
-  }
-
-  function partyLines(party) {
-    return [party.address, party.email, party.phone, party.website]
-      .filter(Boolean)
-      .join("\n");
   }
 
   function hasBanking(bank) {
@@ -320,24 +380,31 @@
     $("#settings-modal").hidden = false;
     document.body.classList.add("modal-open");
     $("#btn-settings").setAttribute("aria-expanded", "true");
-    renderColumnsEditor();
   }
 
   function closeSettings() {
     $("#settings-modal").hidden = true;
-    document.body.classList.remove("modal-open");
+    if ($("#columns-modal").hidden) document.body.classList.remove("modal-open");
     $("#btn-settings").setAttribute("aria-expanded", "false");
   }
 
   function bindSettingsModal() {
     $("#btn-settings").addEventListener("click", openSettings);
     $$("[data-close-settings]").forEach((el) => el.addEventListener("click", closeSettings));
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !$("#settings-modal").hidden) closeSettings();
-    });
   }
 
-  /* ---------- Custom columns (movable) ---------- */
+  /* ---------- Custom columns modal ---------- */
+
+  function openColumnsModal() {
+    $("#columns-modal").hidden = false;
+    document.body.classList.add("modal-open");
+    renderColumnsEditor();
+  }
+
+  function closeColumnsModal() {
+    $("#columns-modal").hidden = true;
+    if ($("#settings-modal").hidden) document.body.classList.remove("modal-open");
+  }
 
   function positionOptions(selected) {
     return COLUMN_POSITIONS.map(
@@ -350,12 +417,14 @@
     const list = $("#columns-list");
     const empty = $("#columns-empty");
     const count = $("#columns-count");
-    const addBtn = $("#btn-add-column");
+    const addBtn = $("#btn-add-column-modal");
     const n = state.customColumns.length;
 
-    count.textContent = `Movable columns · arithmetic in cells · max ${MAX_CUSTOM_COLUMNS} · ${n}/${MAX_CUSTOM_COLUMNS}`;
-    addBtn.disabled = n >= MAX_CUSTOM_COLUMNS;
-    empty.hidden = n > 0;
+    if (count) {
+      count.textContent = `Movable · arithmetic in cells · max ${MAX_CUSTOM_COLUMNS} · ${n}/${MAX_CUSTOM_COLUMNS}`;
+    }
+    if (addBtn) addBtn.disabled = n >= MAX_CUSTOM_COLUMNS;
+    if (empty) empty.hidden = n > 0;
 
     list.innerHTML = state.customColumns
       .map(
@@ -393,19 +462,23 @@
     });
   }
 
-  function bindColumns() {
-    $("#btn-add-column").addEventListener("click", () => {
-      if (state.customColumns.length >= MAX_CUSTOM_COLUMNS) return;
-      state.customColumns.push({
-        id: uid("col"),
-        name: `Column ${state.customColumns.length + 1}`,
-        position: "after_item",
-      });
-      syncItemsWithColumns();
-      renderColumnsEditor();
-      renderItemsEditor();
-      renderPages();
+  function addCustomColumn() {
+    if (state.customColumns.length >= MAX_CUSTOM_COLUMNS) return;
+    state.customColumns.push({
+      id: uid("col"),
+      name: `Column ${state.customColumns.length + 1}`,
+      position: "after_item",
     });
+    syncItemsWithColumns();
+    renderColumnsEditor();
+    renderItemsEditor();
+    renderPages();
+  }
+
+  function bindColumns() {
+    $("#btn-add-column").addEventListener("click", openColumnsModal);
+    $("#btn-add-column-modal").addEventListener("click", addCustomColumn);
+    $$("[data-close-columns]").forEach((el) => el.addEventListener("click", closeColumnsModal));
 
     $("#columns-list").addEventListener("input", (e) => {
       const input = e.target.closest("[data-col-name]");
@@ -590,22 +663,12 @@
 
   function updateEditorTotals() {
     const currency = $("#currency").value;
-    const { subtotal, charges, tax, grand } = computeTotals();
+    const { subtotal, charges, tax, grand, balance } = computeTotals();
     $("#editorSubtotal").textContent = money(subtotal, currency);
     $("#editorCharges").textContent = money(charges, currency);
     $("#editorTax").textContent = money(tax, currency);
     $("#editorGrand").textContent = money(grand, currency);
-  }
-
-  function syncDueModeUI() {
-    $("#dueDateField").hidden = false;
-    $("#paymentTermsField").hidden = false;
-    $("#customTermsField").hidden = $("#paymentTerms").value !== "custom";
-  }
-
-  function syncPaymentStatusUI() {
-    const status = $("#paymentStatus").value;
-    $("#amountPaidField").hidden = status !== "Partially paid";
+    $("#editorBalance").textContent = money(balance, currency);
   }
 
   function syncShipUI() {
@@ -619,16 +682,24 @@
     });
   }
 
+  function dueMetaHTML(data) {
+    const isReceipt = data.paymentTermsValue === "0" || data.paymentTerms === "Due on receipt";
+    const termsLine = `<div><strong>Terms</strong> ${escapeHtml(data.paymentTerms)}</div>`;
+    const dueLine = `<div><strong>Due date</strong> ${escapeHtml(data.dueDate || "—")}</div>`;
+
+    if (data.showBothDueOnInvoice) {
+      return `${termsLine}${dueLine}`;
+    }
+    if (isReceipt) return termsLine;
+    return dueLine;
+  }
+
   function headerHTML(data, { continued }) {
     if (!data.repeat.header && continued) return "";
     const logo = data.logoDataUrl
       ? `<img class="doc-logo" src="${data.logoDataUrl}" alt="Logo" />`
       : "";
-    const metaParts = [
-      data.from.address,
-      data.from.email,
-      data.from.phone,
-    ].filter(Boolean);
+    const metaParts = [data.from.address, data.from.email, data.from.phone].filter(Boolean);
     return `
       <header class="doc-header">
         <div class="doc-brand">
@@ -637,6 +708,7 @@
             <p class="doc-company-name">${escapeHtml(data.from.name)}</p>
             ${data.tagline ? `<p class="doc-tagline">${escapeHtml(data.tagline)}</p>` : ""}
             ${metaParts.length ? `<p class="doc-company-meta">${nl2brSafe(metaParts.join("\n"))}</p>` : ""}
+            ${data.from.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.from.gstin)}</p>` : ""}
           </div>
         </div>
         <div class="doc-title-block">
@@ -644,11 +716,7 @@
           <div class="doc-meta">
             <div><strong>Invoice #</strong> ${escapeHtml(data.invoiceNumber)}</div>
             <div><strong>Date</strong> ${escapeHtml(data.invoiceDate || "—")}</div>
-            ${
-              data.dueMode === "date"
-                ? `<div><strong>Due date</strong> ${escapeHtml(data.dueDate || "—")}</div>`
-                : `<div><strong>Terms</strong> ${escapeHtml(data.paymentTerms)}</div>`
-            }
+            ${dueMetaHTML(data)}
           </div>
         </div>
       </header>`;
@@ -663,6 +731,7 @@
         <div>
           <p class="doc-party-label">Bill to</p>
           <p class="doc-party-name">${escapeHtml(data.to.name || "—")}</p>
+          ${data.to.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.to.gstin)}</p>` : ""}
           <p class="doc-party-body">${nl2brSafe(toLines)}</p>
         </div>
         <div>
@@ -755,6 +824,18 @@
     return `<div class="doc-banking"><h4>Banking details</h4><p>${nl2brSafe(lines)}</p></div>`;
   }
 
+  function qrSlotHTML(needed) {
+    return `<div class="doc-qr-wrap" data-qr-slot="${needed ? "1" : "0"}"></div>`;
+  }
+
+  function payRowHTML(data, { showBanking, showQr }) {
+    if (!showBanking && !showQr) return "";
+    return `<div class="doc-pay-row">
+      ${showQr ? qrSlotHTML(true) : ""}
+      ${showBanking ? bankingHTML(data) : ""}
+    </div>`;
+  }
+
   function totalsHTML(data) {
     const chargeRows = data.charges
       .filter((c) => c.label || c.amount)
@@ -763,6 +844,8 @@
           `<div class="doc-totals-row"><span>${escapeHtml(c.label || "Charge")}</span><span>${money(c.amount, data.currency)}</span></div>`
       )
       .join("");
+    const paid = data.amountPaid || 0;
+    const balance = data.totals.balance != null ? data.totals.balance : data.totals.grand - paid;
     return `
       <div class="doc-totals">
         <div class="doc-totals-row"><span>Items total</span><span>${money(data.totals.subtotal, data.currency)}</span></div>
@@ -770,9 +853,9 @@
         <div class="doc-totals-row"><span>Tax (${data.totals.taxPercent}%)</span><span>${money(data.totals.tax, data.currency)}</span></div>
         <div class="doc-totals-row grand"><span>TOTAL</span><span>${money(data.totals.grand, data.currency)}</span></div>
         ${
-          data.paymentStatus === "Partially paid"
-            ? `<div class="doc-totals-row"><span>Paid</span><span>${money(data.amountPaid, data.currency)}</span></div>
-               <div class="doc-totals-row"><span>Balance</span><span>${money(Math.max(0, data.totals.grand - data.amountPaid), data.currency)}</span></div>`
+          paid > 0
+            ? `<div class="doc-totals-row"><span>Paid</span><span>${money(paid, data.currency)}</span></div>
+               <div class="doc-totals-row"><span>Balance</span><span>${money(balance, data.currency)}</span></div>`
             : ""
         }
       </div>`;
@@ -785,6 +868,28 @@
         ${data.notes ? `<h4>Notes</h4><p>${nl2brSafe(data.notes)}</p>` : ""}
         ${data.terms ? `<h4 style="margin-top:3mm">Terms &amp; conditions</h4><p>${nl2brSafe(data.terms)}</p>` : ""}
       </div>`;
+  }
+
+  function mountQr(slot, data) {
+    if (!slot) return;
+    const upi = buildUpiString(data);
+    const qrBox = document.createElement("div");
+    qrBox.className = "doc-qr";
+    slot.appendChild(qrBox);
+    const caption = document.createElement("div");
+    caption.className = "doc-qr-caption";
+    caption.innerHTML = `Scan to pay<br /><strong>${money(data.totals.grand, data.currency)}</strong><br />${escapeHtml(data.bank.upi)}`;
+    slot.appendChild(caption);
+    if (window.QRCode) {
+      new QRCode(qrBox, {
+        text: upi,
+        width: 72,
+        height: 72,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    } else {
+      qrBox.textContent = "QR unavailable";
+    }
   }
 
   function applyTheme(color) {
@@ -816,6 +921,8 @@
     root.innerHTML = "";
     root.style.setProperty("--doc-accent", data.themeColor);
 
+    const qrEnabled = data.showQr && Boolean(data.bank.upi) && data.totals.grand > 0;
+
     chunks.forEach((pageItems, index) => {
       const pageNo = index + 1;
       const continued = index > 0;
@@ -830,7 +937,7 @@
 
       const bankingOnThisPage =
         hasBanking(data.bank) && (isLast || data.repeat.banking);
-      const qrNeeded = isLast && data.showQr && data.bank.upi && data.totals.grand > 0;
+      const qrOnThisPage = qrEnabled && (isLast || data.qrEveryPage);
 
       let summaryBlock = "";
       if (isLast) {
@@ -838,16 +945,17 @@
             <div class="doc-bottom">
               <div class="doc-bottom__meta">
                 ${notesHTML(data)}
-                ${bankingOnThisPage ? bankingHTML(data) : ""}
-                <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
               </div>
               <div class="doc-bottom__totals">${totalsHTML(data)}</div>
             </div>
           </section>`;
-      } else if (bankingOnThisPage) {
+      } else if (bankingOnThisPage || qrOnThisPage) {
         summaryBlock = `<section class="page-sheet__summary">
             <div class="doc-bottom">
-              <div class="doc-bottom__meta">${bankingHTML(data)}</div>
+              <div class="doc-bottom__meta">
+                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+              </div>
               <div class="doc-bottom__totals"></div>
             </div>
           </section>`;
@@ -875,26 +983,9 @@
 
       root.appendChild(sheet);
 
-      if (qrNeeded) {
+      if (qrOnThisPage) {
         const slot = sheet.querySelector('[data-qr-slot="1"]');
-        const upi = buildUpiString(data);
-        const qrBox = document.createElement("div");
-        qrBox.className = "doc-qr";
-        slot.appendChild(qrBox);
-        const caption = document.createElement("div");
-        caption.className = "doc-qr-caption";
-        caption.innerHTML = `Scan to pay<br /><strong>${money(data.totals.grand, data.currency)}</strong><br />${escapeHtml(data.bank.upi)}`;
-        slot.appendChild(caption);
-        if (window.QRCode) {
-          new QRCode(qrBox, {
-            text: upi,
-            width: 72,
-            height: 72,
-            correctLevel: QRCode.CorrectLevel.M,
-          });
-        } else {
-          qrBox.textContent = "QR unavailable";
-        }
+        mountQr(slot, data);
       }
     });
 
@@ -1028,11 +1119,13 @@
       "fromTagline",
       "fromName",
       "fromAddress",
+      "fromGstin",
       "fromWebsite",
       "fromEmail",
       "fromPhone",
       "toName",
       "toAddress",
+      "toGstin",
       "toEmail",
       "toPhone",
       "shipName",
@@ -1042,8 +1135,7 @@
       "shipDifferent",
       "dueDate",
       "paymentTerms",
-      "customTerms",
-      "paymentStatus",
+      "showBothDueOnInvoice",
       "amountPaid",
       "bankName",
       "accountName",
@@ -1060,31 +1152,43 @@
       "repeatTableHeader",
       "repeatBanking",
       "repeatPageNumbers",
+      "qrEveryPage",
     ];
 
     formIds.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const evt =
-        el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color"
+        el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color" || el.type === "date"
           ? "change"
           : "input";
       el.addEventListener(evt, () => {
         if (id === "pageSize") syncPageSizeControls("pageSize", el.value);
-        if (id === "paymentTerms") syncDueModeUI();
-        if (id === "paymentStatus") syncPaymentStatusUI();
+        if (id === "paymentTerms" || id === "invoiceDate" || id === "dueDate") {
+          syncPaymentDueUI({
+            skipDueDateWrite: id === "dueDate" && isCustomTerms(),
+          });
+        }
         if (id === "shipDifferent") syncShipUI();
-        if (id === "currency" || id === "taxPercent" || id === "autoRound") {
-          renderItemsEditor();
+        if (
+          id === "currency" ||
+          id === "taxPercent" ||
+          id === "autoRound" ||
+          id === "amountPaid"
+        ) {
+          if (id === "currency") renderItemsEditor();
           updateEditorTotals();
         }
         renderPages();
       });
     });
 
-    $$('input[name="dueMode"]').forEach((radio) => {
-      radio.addEventListener("change", () => {
-        syncDueModeUI();
+    // Live typing updates for amount paid / tax while typing
+    ["amountPaid", "taxPercent"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", () => {
+        updateEditorTotals();
         renderPages();
       });
     });
@@ -1120,6 +1224,15 @@
     const downloadBtn = $("#btn-download");
     if (downloadBtn) downloadBtn.addEventListener("click", () => window.print());
 
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("#columns-modal").hidden) {
+        closeColumnsModal();
+        return;
+      }
+      if (!$("#settings-modal").hidden) closeSettings();
+    });
+
     window.addEventListener("resize", () => scheduleFitPreviewScale());
   }
 
@@ -1127,7 +1240,6 @@
     $("#invoiceNumber").value = defaultInvoiceNumber();
     $("#documentTitle").value = "INVOICE";
     $("#invoiceDate").value = todayISO();
-    $("#dueDate").value = addDaysISO(30);
     $("#currency").value = "INR";
     $("#themeColor").value = "#4066E6";
     $("#notes").value = "Thank you for your business.";
@@ -1135,11 +1247,13 @@
     $("#fromTagline").value = "Your Partner in Growth";
     $("#fromName").value = "Number7 Studio";
     $("#fromAddress").value = "12 Innovation Lane\nBengaluru, KA 560001\nIndia";
+    $("#fromGstin").value = "29AABCN1234A1Z5";
     $("#fromWebsite").value = "www.number7ai.com";
     $("#fromEmail").value = "billing@number7ai.com";
     $("#fromPhone").value = "+91 98765 43210";
     $("#toName").value = "Acme Retail Pvt Ltd";
     $("#toAddress").value = "88 Market Road\nMumbai, MH 400001";
+    $("#toGstin").value = "27AABCA9876B1Z2";
     $("#toEmail").value = "ap@acme.example";
     $("#toPhone").value = "+91 91234 56789";
     $("#shipDifferent").checked = false;
@@ -1149,10 +1263,8 @@
     $("#shipPhone").value = "";
     $("#taxPercent").value = "18";
     $("#autoRound").checked = false;
-    $('input[name="dueMode"][value="date"]').checked = true;
-    $("#paymentTerms").value = "Net 30";
-    $("#customTerms").value = "";
-    $("#paymentStatus").value = "Unpaid";
+    $("#paymentTerms").value = "30";
+    $("#showBothDueOnInvoice").checked = true;
     $("#amountPaid").value = "0";
     $("#bankName").value = "HDFC Bank";
     $("#accountName").value = "Number7 Studio";
@@ -1168,6 +1280,7 @@
     $("#repeatTableHeader").checked = true;
     $("#repeatBanking").checked = false;
     $("#repeatPageNumbers").checked = true;
+    $("#qrEveryPage").checked = false;
     $("#logoFile").value = "";
     state.logoDataUrl = "";
     state.customColumns = [];
@@ -1179,8 +1292,7 @@
       rate: 1000 + i * 250,
       custom: {},
     }));
-    syncDueModeUI();
-    syncPaymentStatusUI();
+    syncPaymentDueUI();
     syncShipUI();
     renderColumnsEditor();
     renderChargesEditor();
