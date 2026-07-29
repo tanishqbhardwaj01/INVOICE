@@ -7,6 +7,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  border-radius: 0 !important;
 }
 
 :root {
@@ -469,12 +470,26 @@ button {
 .field input[type="date"],
 .field input[type="file"],
 .field select,
+.field textarea,
+.btn,
+.icon-btn,
+.tabs__btn,
+.items-table input {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="date"],
+.field input[type="file"],
+.field select,
 .field textarea {
   width: 100%;
   min-height: 2.45rem;
   padding: 0.55rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   background: #fafbfe;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
