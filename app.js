@@ -18,10 +18,10 @@
 
   const PAGE_ROWS = {
     // Fill the sheet: middle/continued pages pack denser; last page uses reserve
-    A4: { portrait: 20, landscape: 11, continued: 22 },
-    A3: { portrait: 34, landscape: 18, continued: 38 },
-    Letter: { portrait: 18, landscape: 10, continued: 20 },
-    Legal: { portrait: 26, landscape: 11, continued: 28 },
+    A4: { portrait: 21, landscape: 11, continued: 20 },
+    A3: { portrait: 34, landscape: 18, continued: 36 },
+    Letter: { portrait: 19, landscape: 10, continued: 18 },
+    Legal: { portrait: 27, landscape: 11, continued: 26 },
   };
 
   const CURRENCY = {
@@ -269,7 +269,7 @@
       ? map.continued || map[data.orientation] || map.portrait
       : map[data.orientation] || map.portrait;
     // First page also has bill/ship block
-    if (!continued) rows = Math.max(10, rows - 6);
+    if (!continued) rows = Math.max(10, rows - 5);
     if (data.customColumns.length >= 3) rows = Math.max(8, rows - 1);
     return rows;
   }
@@ -626,7 +626,6 @@
       : "";
     const metaParts = [
       data.from.address,
-      data.from.website,
       data.from.email,
       data.from.phone,
     ].filter(Boolean);
