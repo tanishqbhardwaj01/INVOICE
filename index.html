@@ -80,27 +80,34 @@
           </nav>
 
           <div class="editor-scroll">
-            <!-- BASIC = invoice info + parties + payment due -->
+            <!-- BASIC -->
             <div class="editor-section is-active" id="section-basics" role="tabpanel">
               <div class="block">
-                <h3 class="block__title">Invoice information</h3>
-                <div class="field-grid">
+                <h3 class="block__title">Header details</h3>
+                <div class="field-grid field-grid--3">
                   <label class="field">
-                    <span>Invoice number</span>
-                    <input type="text" id="invoiceNumber" autocomplete="off" />
+                    <span>Document title</span>
+                    <input type="text" id="documentTitle" value="INVOICE" />
                   </label>
                   <label class="field">
                     <span>Currency</span>
                     <select id="currency">
-                      <option value="INR" selected>INR — Indian Rupee</option>
-                      <option value="USD">USD — US Dollar</option>
-                      <option value="EUR">EUR — Euro</option>
-                      <option value="GBP">GBP — British Pound</option>
+                      <option value="INR" selected>INR (₹) — Indian Rupee</option>
+                      <option value="USD">USD ($) — US Dollar</option>
+                      <option value="EUR">EUR (€) — Euro</option>
+                      <option value="GBP">GBP (£) — British Pound</option>
                     </select>
                   </label>
                   <label class="field">
-                    <span>Document title</span>
-                    <input type="text" id="documentTitle" value="INVOICE" />
+                    <span>Theme color</span>
+                    <div class="color-field">
+                      <input type="color" id="themeColor" value="#4066E6" />
+                      <span class="color-field__hex" id="themeColorHex">#4066E6</span>
+                    </div>
+                  </label>
+                  <label class="field">
+                    <span>Invoice number</span>
+                    <input type="text" id="invoiceNumber" autocomplete="off" />
                   </label>
                   <label class="field">
                     <span>Invoice date</span>
@@ -110,59 +117,45 @@
               </div>
 
               <div class="block">
-                <h3 class="block__title">Payment due</h3>
-                <p class="hint">Choose fixed due date or payment terms — both stay available.</p>
-                <div class="segmented" role="radiogroup" aria-label="Payment due mode">
-                  <label class="segmented__option">
-                    <input type="radio" name="dueMode" value="date" checked />
-                    <span>Fixed due date</span>
-                  </label>
-                  <label class="segmented__option">
-                    <input type="radio" name="dueMode" value="terms" />
-                    <span>Payment terms</span>
-                  </label>
-                </div>
-                <div class="field-grid payment-fields">
-                  <label class="field" id="dueDateField">
-                    <span>Due date</span>
-                    <input type="date" id="dueDate" />
-                  </label>
-                  <label class="field" id="paymentTermsField">
-                    <span>Payment terms</span>
-                    <select id="paymentTerms">
-                      <option value="Net 15">Net 15</option>
-                      <option value="Net 30" selected>Net 30</option>
-                      <option value="Net 45">Net 45</option>
-                      <option value="Due on receipt">Due on receipt</option>
-                      <option value="custom">Custom text…</option>
-                    </select>
-                  </label>
-                  <label class="field field--full" id="customTermsField" hidden>
-                    <span>Custom terms</span>
-                    <input type="text" id="customTerms" placeholder="e.g. Payable within 10 days of delivery" />
-                  </label>
+                <h3 class="block__title">From (Sender)</h3>
+                <div class="stack">
+                  <label class="field"><span>Company / Name</span><input type="text" id="fromName" placeholder="Your Company" /></label>
+                  <label class="field"><span>Address</span><textarea id="fromAddress" rows="2" placeholder="123 Business St, City, State - PIN"></textarea></label>
+                  <div class="field-grid">
+                    <label class="field"><span>Website</span><input type="text" id="fromWebsite" placeholder="www.yourcompany.com" /></label>
+                    <label class="field"><span>Email</span><input type="email" id="fromEmail" placeholder="hello@company.com" /></label>
+                    <label class="field"><span>Phone</span><input type="text" id="fromPhone" placeholder="+91 …" /></label>
+                  </div>
                 </div>
               </div>
 
-              <div class="party-grid">
-                <div class="block">
-                  <h3 class="block__title">Your company (From)</h3>
-                  <div class="stack">
-                    <label class="field"><span>Company name</span><input type="text" id="fromName" placeholder="Your Company" /></label>
-                    <label class="field"><span>Address</span><input type="text" id="fromAddress" placeholder="Street address" /></label>
-                    <label class="field"><span>City / State / ZIP</span><input type="text" id="fromCity" placeholder="City, State, ZIP" /></label>
-                    <label class="field"><span>Country</span><input type="text" id="fromCountry" placeholder="Country" /></label>
-                    <label class="field"><span>Email / Phone</span><input type="text" id="fromContact" placeholder="hello@company.com · +91…" /></label>
-                  </div>
+              <div class="block">
+                <div class="block__title-row">
+                  <h3 class="block__title" style="margin:0">Bill &amp; ship</h3>
+                  <label class="check">
+                    <input type="checkbox" id="shipDifferent" />
+                    <span>Ship to a different address?</span>
+                  </label>
                 </div>
-                <div class="block">
-                  <h3 class="block__title">Bill to (Client)</h3>
-                  <div class="stack">
-                    <label class="field"><span>Client name</span><input type="text" id="toName" placeholder="Client name" /></label>
-                    <label class="field"><span>Address</span><input type="text" id="toAddress" placeholder="Street address" /></label>
-                    <label class="field"><span>City / State / ZIP</span><input type="text" id="toCity" placeholder="City, State, ZIP" /></label>
-                    <label class="field"><span>Country</span><input type="text" id="toCountry" placeholder="Country" /></label>
-                    <label class="field"><span>Email / Phone</span><input type="text" id="toContact" placeholder="client@email.com · +91…" /></label>
+                <div class="party-grid">
+                  <div class="party-card">
+                    <h4 class="party-card__title">Bill to (Client)</h4>
+                    <div class="stack">
+                      <label class="field"><span>Client name</span><input type="text" id="toName" placeholder="Client/Company Name" /></label>
+                      <label class="field"><span>Address</span><textarea id="toAddress" rows="2" placeholder="Client address"></textarea></label>
+                      <label class="field"><span>Email</span><input type="email" id="toEmail" placeholder="client@company.com" /></label>
+                      <label class="field"><span>Phone</span><input type="text" id="toPhone" placeholder="+91 …" /></label>
+                    </div>
+                  </div>
+                  <div class="party-card" id="shipToCard">
+                    <h4 class="party-card__title">Ship to</h4>
+                    <div class="stack" id="shipToFields">
+                      <p class="hint" id="shipSameHint">Same as bill to. Turn on “Ship to a different address?” to edit.</p>
+                      <label class="field"><span>Ship name</span><input type="text" id="shipName" placeholder="Recipient / Company" /></label>
+                      <label class="field"><span>Address</span><textarea id="shipAddress" rows="2" placeholder="Shipping address"></textarea></label>
+                      <label class="field"><span>Email</span><input type="email" id="shipEmail" placeholder="ship@company.com" /></label>
+                      <label class="field"><span>Phone</span><input type="text" id="shipPhone" placeholder="+91 …" /></label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -173,7 +166,7 @@
               <div class="items-toolbar">
                 <div>
                   <h3 class="block__title" style="margin:0">Line items</h3>
-                  <p class="muted">Add products or services. Extra columns come from Settings.</p>
+                  <p class="muted">Custom columns come from Settings. Type math like <code>10*5</code> in a column to calculate.</p>
                 </div>
                 <button type="button" class="btn btn--primary btn--sm" id="btn-add-item">+ Item</button>
               </div>
@@ -196,14 +189,81 @@
                 </div>
                 <div class="totals-editor__sum">
                   <div><span>Items total</span><strong id="editorSubtotal">₹0.00</strong></div>
+                  <div><span>Additional charges</span><strong id="editorCharges">₹0.00</strong></div>
                   <div><span>Tax</span><strong id="editorTax">₹0.00</strong></div>
                   <div class="grand"><span>Grand total</span><strong id="editorGrand">₹0.00</strong></div>
                 </div>
               </div>
             </div>
 
-            <!-- PAYMENT = banking only -->
+            <!-- PAYMENT -->
             <div class="editor-section" id="section-payment" role="tabpanel" hidden>
+              <div class="block">
+                <h3 class="block__title">Payment due</h3>
+                <p class="hint">Both due date and payment terms stay available — choose which the invoice shows.</p>
+                <div class="segmented" role="radiogroup" aria-label="Payment due mode">
+                  <label class="segmented__option">
+                    <input type="radio" name="dueMode" value="date" checked />
+                    <span>Fixed due date</span>
+                  </label>
+                  <label class="segmented__option">
+                    <input type="radio" name="dueMode" value="terms" />
+                    <span>Payment terms</span>
+                  </label>
+                </div>
+                <div class="field-grid payment-fields">
+                  <label class="field" id="dueDateField">
+                    <span>Due date</span>
+                    <input type="date" id="dueDate" />
+                  </label>
+                  <label class="field" id="paymentTermsField">
+                    <span>Payment terms</span>
+                    <select id="paymentTerms">
+                      <option value="Net 15">Net 15 Days</option>
+                      <option value="Net 30" selected>Net 30 Days</option>
+                      <option value="Net 45">Net 45 Days</option>
+                      <option value="Due on receipt">Due on receipt</option>
+                      <option value="custom">Custom text…</option>
+                    </select>
+                  </label>
+                  <label class="field field--full" id="customTermsField" hidden>
+                    <span>Custom terms</span>
+                    <input type="text" id="customTerms" placeholder="e.g. Payable within 10 days of delivery" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="block">
+                <h3 class="block__title">Payment status</h3>
+                <div class="field-grid">
+                  <label class="field">
+                    <span>Status</span>
+                    <select id="paymentStatus">
+                      <option value="Unpaid" selected>Unpaid</option>
+                      <option value="Partially paid">Partially paid</option>
+                      <option value="Paid">Paid</option>
+                      <option value="Overdue">Overdue</option>
+                    </select>
+                  </label>
+                  <label class="field" id="amountPaidField" hidden>
+                    <span>Amount paid</span>
+                    <input type="number" id="amountPaid" min="0" step="0.01" value="0" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="items-toolbar" style="margin-bottom:0.75rem">
+                  <div>
+                    <h3 class="block__title" style="margin:0">Additional charges</h3>
+                    <p class="muted">Shipping, packing, discounts (use negative amounts), etc.</p>
+                  </div>
+                  <button type="button" class="btn btn--primary btn--sm" id="btn-add-charge">+ Charge</button>
+                </div>
+                <div id="charges-list" class="charges-list"></div>
+                <p class="hint" id="charges-empty">No additional charges yet.</p>
+              </div>
+
               <div class="block">
                 <h3 class="block__title">Banking details <span class="optional">optional</span></h3>
                 <div class="field-grid">
@@ -249,7 +309,6 @@
               </button>
             </div>
           </div>
-
           <div class="preview-stage" id="preview-stage">
             <div class="preview-scale" id="preview-scale">
               <div id="pages-root" class="pages-root"></div>
@@ -267,7 +326,7 @@
       <header class="modal__head">
         <div>
           <h2 id="settings-title">Invoice settings</h2>
-          <p>Theme, logo, footer, page layout, and custom columns</p>
+          <p>Logo, tagline, footer, page layout, and movable custom columns</p>
         </div>
         <button type="button" class="icon-btn" id="btn-close-settings" aria-label="Close settings" data-close-settings>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -279,15 +338,12 @@
           <h3>Brand</h3>
           <div class="field-grid">
             <label class="field">
-              <span>Theme color</span>
-              <div class="color-field">
-                <input type="color" id="themeColor" value="#4066E6" />
-                <span class="color-field__hex" id="themeColorHex">#4066E6</span>
-              </div>
-            </label>
-            <label class="field">
               <span>Company logo</span>
               <input type="file" id="logoFile" accept="image/*" />
+            </label>
+            <label class="field">
+              <span>Tagline</span>
+              <input type="text" id="fromTagline" placeholder="e.g. Your Partner in Growth" />
             </label>
           </div>
         </section>
@@ -329,7 +385,7 @@
           <p class="hint" style="margin-top:0.85rem">Repeat on every page</p>
           <div class="check-list">
             <label class="check"><input type="checkbox" id="repeatHeader" checked /><span>Company header / logo</span></label>
-            <label class="check"><input type="checkbox" id="repeatBillTo" /><span>Bill-to block</span></label>
+            <label class="check"><input type="checkbox" id="repeatBillTo" /><span>Bill-to / ship-to block</span></label>
             <label class="check"><input type="checkbox" id="repeatTableHeader" checked /><span>Table column headers</span></label>
             <label class="check"><input type="checkbox" id="repeatBanking" /><span>Banking details</span></label>
             <label class="check"><input type="checkbox" id="repeatPageNumbers" checked /><span>Page numbers (Page X of Y)</span></label>
@@ -340,12 +396,12 @@
           <div class="items-toolbar" style="margin-bottom:0.75rem">
             <div>
               <h3 style="margin:0">Custom columns</h3>
-              <p class="muted" id="columns-count">Add fields to line items (max 5) · 0/5</p>
+              <p class="muted" id="columns-count">Movable columns · arithmetic in cells · max 5 · 0/5</p>
             </div>
             <button type="button" class="btn btn--primary btn--sm" id="btn-add-column">+ Add</button>
           </div>
           <div id="columns-list" class="columns-list"></div>
-          <p class="hint" id="columns-empty">No custom columns yet. Add fields like SKU, size, color, etc.</p>
+          <p class="hint" id="columns-empty">No custom columns yet. Add fields like SKU, HSN, discount — and choose where they sit in the table.</p>
         </section>
       </div>
 
