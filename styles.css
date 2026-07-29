@@ -654,12 +654,17 @@ button {
   font-weight: 700;
 }
 
-.items-table th:nth-child(2),
-.items-table th:nth-child(3),
-.items-table th:nth-child(4),
-.items-table td:nth-child(2),
-.items-table td:nth-child(3),
-.items-table td:nth-child(4) {
+.items-table th.custom-col {
+  width: 5.5rem;
+  text-align: left;
+}
+
+.items-table th:nth-last-child(4),
+.items-table td:nth-last-child(4),
+.items-table th:nth-last-child(3),
+.items-table td:nth-last-child(3),
+.items-table th:nth-last-child(2),
+.items-table td:nth-last-child(2) {
   width: 4.1rem;
   text-align: right;
 }
@@ -1196,5 +1201,124 @@ button {
   .page-sheet:last-child {
     page-break-after: auto;
     break-after: auto;
+  }
+}
+
+/* ---------- Settings modal ---------- */
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal[hidden] {
+  display: none !important;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 27, 61, 0.45);
+}
+
+.modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(640px, 100%);
+  max-height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 64px rgba(15, 27, 61, 0.22);
+  box-sizing: border-box;
+}
+
+.modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.2rem;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.modal__head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.modal__head p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.35rem 1.2rem 1.2rem;
+}
+
+.modal__section {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.modal__section:last-child {
+  border-bottom: none;
+}
+
+.modal__section h3 {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.modal__foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.9rem 1.2rem;
+  border-top: 1px solid var(--line);
+  background: #fafbfe;
+}
+
+.columns-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.column-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+.field--grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media print {
+  .modal {
+    display: none !important;
   }
 }
