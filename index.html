@@ -178,16 +178,13 @@
                 </table>
               </div>
 
-              <div class="block" style="border-top:1px solid var(--line-soft); margin-top:1rem; padding-top:1rem">
-                <div class="items-toolbar" style="margin-bottom:0.75rem">
-                  <div>
-                    <h3 class="block__title" style="margin:0">Additional charges</h3>
-                    <p class="muted">Shipping, packing, discounts (negative amounts), etc.</p>
-                  </div>
-                  <button type="button" class="btn btn--primary btn--sm" id="btn-add-charge">+ Charge</button>
+              <div class="block charges-block">
+                <div class="charges-block__head">
+                  <h3 class="block__title" style="margin:0">Additional charges</h3>
+                  <button type="button" class="btn btn--ghost btn--sm" id="btn-add-charge">+ Charge</button>
                 </div>
                 <div id="charges-list" class="charges-list"></div>
-                <p class="hint" id="charges-empty">No additional charges yet.</p>
+                <p class="hint" id="charges-empty">No charges · shipping, packing, or discounts</p>
               </div>
 
               <div class="totals-editor">
@@ -196,8 +193,8 @@
                     <span>Tax / GST %</span>
                     <input type="number" id="taxPercent" min="0" step="0.01" value="0" />
                   </label>
-                  <label class="field field--inline">
-                    <span>Amount paid</span>
+                  <label class="field field--inline" id="amountPaidField">
+                    <span>Amount paid <em class="optional">(partial)</em></span>
                     <input type="number" id="amountPaid" min="0" step="0.01" value="0" />
                   </label>
                   <label class="check">
@@ -209,14 +206,34 @@
                   <div><span>Items total</span><strong id="editorSubtotal">₹0.00</strong></div>
                   <div><span>Additional charges</span><strong id="editorCharges">₹0.00</strong></div>
                   <div><span>Tax / GST</span><strong id="editorTax">₹0.00</strong></div>
-                  <div class="grand"><span>Grand total</span><strong id="editorGrand">₹0.00</strong></div>
-                  <div><span>Balance due</span><strong id="editorBalance">₹0.00</strong></div>
+                  <div class="totals-editor__grand-line">
+                    <div class="round-off-side" id="editorRoundOffWrap" hidden>
+                      <span>Round off</span><strong id="editorRoundOff">₹0.00</strong>
+                    </div>
+                    <div class="grand"><span>Grand total</span><strong id="editorGrand">₹0.00</strong></div>
+                  </div>
+                  <div id="editorBalanceRow"><span>Balance due</span><strong id="editorBalance">₹0.00</strong></div>
                 </div>
               </div>
             </div>
 
             <!-- PAYMENT -->
             <div class="editor-section" id="section-payment" role="tabpanel" hidden>
+              <div class="block">
+                <h3 class="block__title">Payment status</h3>
+                <div class="field-grid">
+                  <label class="field">
+                    <span>Status</span>
+                    <select id="paymentStatus">
+                      <option value="unpaid" selected>Unpaid</option>
+                      <option value="partial">Partial</option>
+                      <option value="paid">Paid</option>
+                    </select>
+                  </label>
+                </div>
+                <p class="hint" id="paymentStatusHint">Shown in the payment section on the invoice. For Partial, set Amount paid under Items.</p>
+              </div>
+
               <div class="block">
                 <h3 class="block__title">Payment due</h3>
                 <p class="hint">Pick a Net term to auto-set the due date from the invoice date. Choose “Due on date” to unlock the calendar — terms become the day count.</p>
