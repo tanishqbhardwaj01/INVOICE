@@ -110,7 +110,7 @@
       documentTitle: $("#documentTitle").value.trim() || "INVOICE",
       invoiceDate: $("#invoiceDate").value,
       currency,
-      themeColor: $("#themeColor").value || "#1F4BFF",
+        themeColor: $("#themeColor").value || "#4066E6",
       notes: $("#notes").value.trim(),
       terms: $("#terms").value.trim(),
       from: {
@@ -357,6 +357,8 @@
 
   function applyTheme(color) {
     document.documentElement.style.setProperty("--brand", color);
+    const hex = $("#themeColorHex");
+    if (hex) hex.textContent = String(color || "#4066E6").toUpperCase();
   }
 
   function renderPages() {
@@ -367,9 +369,14 @@
     const chunks = chunkItems(data.items, perPage);
     const totalPages = chunks.length;
 
-    $("#previewMeta").textContent = `${data.pageSize} · ${
+    $("#previewMeta").textContent = `Live document — ${data.pageSize} · ${
       data.orientation[0].toUpperCase() + data.orientation.slice(1)
     } · ${totalPages} page${totalPages === 1 ? "" : "s"}`;
+
+    const pill = $("#invoicePill");
+    if (pill) {
+      pill.textContent = `INV | ${data.invoiceNumber.replace(/^INV-?/i, "")}`;
+    }
 
     root.innerHTML = "";
     root.style.setProperty("--doc-accent", data.themeColor);
@@ -470,10 +477,10 @@
   }
 
   function bindSectionNav() {
-    $$(".section-nav__btn").forEach((btn) => {
+    $$(".tabs__btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.section;
-        $$(".section-nav__btn").forEach((b) => b.classList.toggle("is-active", b === btn));
+        $$(".tabs__btn").forEach((b) => b.classList.toggle("is-active", b === btn));
         $$(".editor-section").forEach((sec) => {
           const match = sec.id === `section-${id}`;
           sec.classList.toggle("is-active", match);
@@ -618,6 +625,11 @@
       window.print();
     });
 
+    const printIcon = $("#btn-print-icon");
+    if (printIcon) printIcon.addEventListener("click", () => window.print());
+    const downloadBtn = $("#btn-download");
+    if (downloadBtn) downloadBtn.addEventListener("click", () => window.print());
+
     window.addEventListener("resize", () => fitPreviewScale());
   }
 
@@ -627,7 +639,7 @@
     $("#invoiceDate").value = todayISO();
     $("#dueDate").value = addDaysISO(30);
     $("#currency").value = "INR";
-    $("#themeColor").value = "#1F4BFF";
+    $("#themeColor").value = "#4066E6";
     $("#notes").value = "Thank you for your business.";
     $("#terms").value = "";
     $("#fromName").value = "Number7 Studio";
