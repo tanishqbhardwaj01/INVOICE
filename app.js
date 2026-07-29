@@ -108,9 +108,10 @@
 
   /**
    * Cell helpers:
-   * - "10*5" → evaluates to 50 (display)
-   * - "-15%" → kept as-is; reduces line amount by 15%
-   * - "+10%" → increases line amount by 10%
+   * - "10*5" → evaluates to 50 (display only)
+   * - "-15%" / "+10%" → % adjust line amount
+   * - "-50" / "+50" → flat ₹/currency adjust line amount (sign required)
+   * - "50" unsigned → display only (no amount impact)
    */
   function evalArithmetic(raw) {
     const text = String(raw ?? "").trim();
@@ -118,6 +119,11 @@
 
     if (/^[+\-]?\d+(\.\d+)?\s*%$/.test(text)) {
       return { ok: true, value: text.replace(/\s+/g, ""), isPercent: true };
+    }
+
+    // Keep explicit signed flat amounts as-is (e.g. -50, +100)
+    if (/^[+\-]\d+(\.\d+)?$/.test(text)) {
+      return { ok: true, value: text, isFlat: true };
     }
 
     if (!/[+\-*/()]/.test(text)) return { ok: false, value: text };
@@ -134,21 +140,29 @@
     }
   }
 
-  function discountMultiplier(item) {
+  function lineAmountAdjustments(item) {
     let factor = 1;
+    let flat = 0;
     Object.values(item.custom || {}).forEach((raw) => {
-      const m = String(raw ?? "")
-        .trim()
-        .match(/^([+\-]?\d+(?:\.\d+)?)\s*%$/);
-      if (!m) return;
-      factor *= 1 + Number(m[1]) / 100;
+      const text = String(raw ?? "").trim();
+      const pct = text.match(/^([+\-]?\d+(?:\.\d+)?)\s*%$/);
+      if (pct) {
+        factor *= 1 + Number(pct[1]) / 100;
+        return;
+      }
+      // Flat wave/discount in currency: must include + or - (e.g. -50)
+      const flatMatch = text.match(/^([+\-]\d+(?:\.\d+)?)$/);
+      if (flatMatch) {
+        flat += Number(flatMatch[1]);
+      }
     });
-    return factor;
+    return { factor, flat };
   }
 
   function lineAmount(item) {
     const base = (Number(item.qty) || 0) * (Number(item.rate) || 0);
-    return Math.round(base * discountMultiplier(item) * 100) / 100;
+    const { factor, flat } = lineAmountAdjustments(item);
+    return Math.round((base * factor + flat) * 100) / 100;
   }
 
   function blankItem() {
@@ -648,7 +662,7 @@
     return cols
       .map(
         (col) =>
-          `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)} · 10*5 or -15%" /></td>`
+          `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)} · -15% or -50" /></td>`
       )
       .join("");
   }
@@ -1124,7 +1138,7 @@
         customInput.value = evaluated.value;
         item.custom[customInput.dataset.custom] = evaluated.value;
         customInput.classList.toggle("is-calculated", true);
-        customInput.classList.toggle("is-discount", !!evaluated.isPercent);
+        customInput.classList.toggle("is-discount", !!(evaluated.isPercent || evaluated.isFlat));
         const amountCell = row.querySelector(".amount-cell");
         if (amountCell) {
           amountCell.textContent = money(lineAmount(item), $("#currency").value);
