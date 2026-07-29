@@ -193,10 +193,6 @@
                     <span>Tax / GST %</span>
                     <input type="number" id="taxPercent" min="0" step="0.01" value="0" />
                   </label>
-                  <label class="field field--inline" id="amountPaidField">
-                    <span>Amount paid <em class="optional">(partial)</em></span>
-                    <input type="number" id="amountPaid" min="0" step="0.01" value="0" />
-                  </label>
                   <label class="check">
                     <input type="checkbox" id="autoRound" />
                     <span>Auto round off</span>
@@ -230,8 +226,12 @@
                       <option value="paid">Paid</option>
                     </select>
                   </label>
+                  <label class="field" id="amountPaidField" hidden>
+                    <span>Partial amount paid</span>
+                    <input type="number" id="amountPaid" min="0" step="0.01" value="0" placeholder="0.00" />
+                  </label>
                 </div>
-                <p class="hint" id="paymentStatusHint">For Partial, set Amount paid under Items. Status is editor-only (not printed on the bill).</p>
+                <p class="hint" id="paymentStatusHint">Choose Partial to enter the amount paid here. Status is editor-only (not printed on the bill).</p>
               </div>
 
               <div class="block">

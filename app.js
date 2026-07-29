@@ -284,7 +284,7 @@
     if (balanceRow) balanceRow.hidden = status === "paid";
     if (hint) {
       if (status === "partial") {
-        hint.textContent = "Partial — enter Amount paid under Items. Paid & balance appear on the invoice.";
+        hint.textContent = "Partial — enter the amount paid here. Paid & balance appear on the invoice totals.";
       } else if (status === "paid") {
         hint.textContent = "Paid — balance is cleared. Status stays in the editor only.";
       } else {
