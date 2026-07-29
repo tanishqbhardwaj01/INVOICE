@@ -241,12 +241,6 @@
     return el ? el.value : "unpaid";
   }
 
-  function paymentStatusLabel(status) {
-    if (status === "partial") return "Partial";
-    if (status === "paid") return "Paid";
-    return "Unpaid";
-  }
-
   function computeTotals() {
     const taxPercent = Number($("#taxPercent").value) || 0;
     const autoRound = $("#autoRound").checked;
