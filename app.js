@@ -282,6 +282,7 @@
         name: $("#fromName").value.trim() || "Your Company",
         address: $("#fromAddress").value.trim(),
         gstin: $("#fromGstin").value.trim(),
+        stateCode: $("#fromStateCode").value.trim(),
         website: $("#fromWebsite").value.trim(),
         email: $("#fromEmail").value.trim(),
         phone: $("#fromPhone").value.trim(),
@@ -290,6 +291,7 @@
         name: $("#toName").value.trim(),
         address: $("#toAddress").value.trim(),
         gstin: $("#toGstin").value.trim(),
+        stateCode: $("#toStateCode").value.trim(),
         email: $("#toEmail").value.trim(),
         phone: $("#toPhone").value.trim(),
       },
@@ -759,6 +761,7 @@
             ${data.tagline ? `<p class="doc-tagline">${escapeHtml(data.tagline)}</p>` : ""}
             ${metaParts.length ? `<p class="doc-company-meta">${nl2brSafe(metaParts.join("\n"))}</p>` : ""}
             ${data.from.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.from.gstin)}</p>` : ""}
+            ${data.from.stateCode ? `<p class="doc-state">State code: ${escapeHtml(data.from.stateCode)}</p>` : ""}
           </div>
         </div>
         <div class="doc-title-block">
@@ -782,6 +785,7 @@
           <p class="doc-party-label">Bill to</p>
           <p class="doc-party-name">${escapeHtml(data.to.name || "—")}</p>
           ${data.to.gstin ? `<p class="doc-gstin">GSTIN: ${escapeHtml(data.to.gstin)}</p>` : ""}
+          ${data.to.stateCode ? `<p class="doc-state">State code: ${escapeHtml(data.to.stateCode)}</p>` : ""}
           <p class="doc-party-body">${nl2brSafe(toLines)}</p>
         </div>
         <div>
@@ -851,13 +855,15 @@
             )
             .join("");
 
-    const cont = continued
+    const contBefore = continued
       ? `<p class="doc-continuation">Continued from previous page</p>`
-      : !isLast && pageItems.length
-        ? `<p class="doc-continuation">Continues on next page</p>`
+      : "";
+    const contAfter =
+      !isLast && pageItems.length
+        ? `<p class="doc-continuation doc-continuation--after">Continues on next page</p>`
         : "";
 
-    return `${cont}<table class="doc-table">${header}<tbody>${rows}</tbody></table>`;
+    return `${contBefore}<table class="doc-table">${header}<tbody>${rows}</tbody></table>${contAfter}`;
   }
 
   function bankingHTML(data) {
@@ -1178,12 +1184,14 @@
       "fromName",
       "fromAddress",
       "fromGstin",
+      "fromStateCode",
       "fromWebsite",
       "fromEmail",
       "fromPhone",
       "toName",
       "toAddress",
       "toGstin",
+      "toStateCode",
       "toEmail",
       "toPhone",
       "shipName",
@@ -1306,12 +1314,14 @@
     $("#fromName").value = "Number7 Studio";
     $("#fromAddress").value = "12 Innovation Lane\nBengaluru, KA 560001\nIndia";
     $("#fromGstin").value = "29AABCN1234A1Z5";
+    $("#fromStateCode").value = "29";
     $("#fromWebsite").value = "www.number7ai.com";
     $("#fromEmail").value = "billing@number7ai.com";
     $("#fromPhone").value = "+91 98765 43210";
     $("#toName").value = "Acme Retail Pvt Ltd";
     $("#toAddress").value = "88 Market Road\nMumbai, MH 400001";
     $("#toGstin").value = "27AABCA9876B1Z2";
+    $("#toStateCode").value = "27";
     $("#toEmail").value = "ap@acme.example";
     $("#toPhone").value = "+91 91234 56789";
     $("#shipDifferent").checked = false;
