@@ -16,14 +16,6 @@
     { value: "after_amount", label: "After Amount" },
   ];
 
-  const PAGE_ROWS = {
-    // Base item budgets before footer reserves (banking / QR / totals)
-    A4: { portrait: 21, landscape: 11, continued: 20 },
-    A3: { portrait: 34, landscape: 18, continued: 36 },
-    Letter: { portrait: 19, landscape: 10, continued: 18 },
-    Legal: { portrait: 27, landscape: 11, continued: 26 },
-  };
-
   const CURRENCY = {
     INR: { symbol: "₹", locale: "en-IN" },
     USD: { symbol: "$", locale: "en-US" },
@@ -407,104 +399,279 @@
   }
 
   function pageShowsQr(data, isLast) {
-    return Boolean(data.showQr && data.bank.upi) && (isLast || data.qrEveryPage);
+    return Boolean(data.showQr && data.bank.upi && data.totals.grand > 0) && (isLast || data.qrEveryPage);
   }
 
-  /** Vertical space taken by notes / totals / banking / QR, in item-row units. */
-  function footerReserve(data, { banking, qr, summary }) {
-    let reserve = 0;
-    if (summary) {
-      reserve += 2; // totals block
-      if (data.notes || data.terms) reserve += 1;
-      if (data.charges.length) reserve += 1;
+  /** Absolute page size in CSS px (96dpi). Avoids mm + preview-scale mismatch while measuring. */
+  function pagePixelSize(data) {
+    const mm = {
+      A4: [210, 297],
+      A3: [297, 420],
+      Letter: [215.9, 279.4],
+      Legal: [215.9, 355.6],
+    };
+    let [wMm, hMm] = mm[data.pageSize] || mm.A4;
+    if (data.orientation === "landscape") [wMm, hMm] = [hMm, wMm];
+    const dpi = 96;
+    return {
+      width: Math.round((wMm / 25.4) * dpi),
+      height: Math.round((hMm / 25.4) * dpi),
+    };
+  }
+
+  function getMeasureRoot() {
+    let root = document.getElementById("measure-root");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "measure-root";
+      root.setAttribute("aria-hidden", "true");
+      document.body.appendChild(root);
     }
-    // Banking + QR used to cover ~4 trailing items — reserve that space so rows push forward
-    if (banking && qr) reserve += 4;
-    else if (qr) reserve += 3;
-    else if (banking) reserve += 2;
-    return reserve;
+    return root;
+  }
+
+  function summaryHTML(data, { isLast, bankingOnThisPage, qrOnThisPage }) {
+    if (isLast) {
+      return `<section class="page-sheet__summary">
+        <div class="doc-bottom">
+          <div class="doc-bottom__meta">
+            ${notesHTML(data)}
+            ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+          </div>
+          <div class="doc-bottom__totals">${totalsHTML(data)}</div>
+        </div>
+      </section>`;
+    }
+    if (bankingOnThisPage || qrOnThisPage) {
+      return `<section class="page-sheet__summary">
+        <div class="doc-bottom">
+          <div class="doc-bottom__meta">
+            ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+          </div>
+          <div class="doc-bottom__totals"></div>
+        </div>
+      </section>`;
+    }
+    return "";
+  }
+
+  function buildPageSheet(data, pageItems, { continued, isLast, pageNo, totalPages, forMeasure }) {
+    const showTableHeader = data.repeat.tableHeader || !continued;
+    const bankingOnThisPage = pageShowsBanking(data, isLast);
+    const qrOnThisPage = pageShowsQr(data, isLast);
+    const px = pagePixelSize(data);
+
+    const sheet = document.createElement("article");
+    sheet.className = "page-sheet";
+    sheet.dataset.size = data.pageSize;
+    sheet.dataset.orientation = data.orientation;
+    sheet.style.setProperty("--doc-accent", data.themeColor);
+    // Explicit px so measure-root and live preview share the same layout box
+    sheet.style.setProperty("width", `${px.width}px`, "important");
+    sheet.style.setProperty("height", `${px.height}px`, "important");
+    sheet.style.setProperty("max-height", `${px.height}px`, "important");
+    sheet.style.setProperty("min-height", `${px.height}px`, "important");
+    sheet.style.flexShrink = "0";
+
+    sheet.innerHTML = `
+      <div class="page-sheet__inner">
+        <div class="page-sheet__main">
+          ${headerHTML(data, { continued })}
+          ${billShipHTML(data, { continued })}
+          <div class="doc-table-box">
+            ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
+          </div>
+        </div>
+        ${summaryHTML(data, { isLast, bankingOnThisPage, qrOnThisPage })}
+        <footer class="page-sheet__footer">
+          <span class="powered">Powered by Number7 AI</span>
+          ${
+            data.repeat.pageNumbers
+              ? `<span class="page-num">Page ${pageNo} of ${totalPages}</span>`
+              : "<span></span>"
+          }
+        </footer>
+      </div>`;
+
+    if (qrOnThisPage) {
+      const slot = sheet.querySelector('[data-qr-slot="1"]');
+      if (forMeasure) {
+        // Match real QR + caption footprint (amount + UPI line)
+        const wrap = slot || sheet.querySelector(".doc-qr-wrap");
+        if (wrap) {
+          wrap.innerHTML = `<div class="doc-qr" style="width:72px;height:72px;background:#eee"></div>
+            <div class="doc-qr-caption">Scan to pay<br /><strong>${money(
+              data.totals.grand,
+              data.currency
+            )}</strong><br />${escapeHtml(data.bank.upi || "upi@bank")}</div>`;
+        }
+      } else {
+        mountQr(slot, data);
+      }
+    }
+
+    return sheet;
+  }
+
+  /** Safety gap so sub-pixel / caption differences never clip the last rows. */
+  const PAGE_FIT_SAFETY_PX = 28;
+
+  function sheetLayoutHeight(sheet) {
+    // Prefer the explicit px we set — offsetHeight is wrong under preview CSS transforms
+    const forced = parseFloat(sheet.style.height);
+    if (Number.isFinite(forced) && forced > 0) return forced;
+    return sheet.offsetHeight;
+  }
+
+  /** True when unclipped page content is taller than the fixed sheet. */
+  function pageContentOverflows(sheet) {
+    const inner = sheet.querySelector(".page-sheet__inner");
+    const main = sheet.querySelector(".page-sheet__main");
+    const tableBox = sheet.querySelector(".doc-table-box");
+    if (!inner || !main) return false;
+
+    const allowed = sheetLayoutHeight(sheet);
+
+    const prevSheet = {
+      height: sheet.style.getPropertyValue("height") || `${allowed}px`,
+      maxHeight: sheet.style.getPropertyValue("max-height") || `${allowed}px`,
+      minHeight: sheet.style.getPropertyValue("min-height") || `${allowed}px`,
+      overflow: sheet.style.overflow,
+    };
+    const prevInner = {
+      height: inner.style.height,
+      maxHeight: inner.style.maxHeight,
+      overflow: inner.style.overflow,
+      flex: inner.style.flex,
+    };
+    const prevMain = {
+      overflow: main.style.overflow,
+      flex: main.style.flex,
+      minHeight: main.style.minHeight,
+    };
+    const prevBox = tableBox
+      ? {
+          overflow: tableBox.style.overflow,
+          flex: tableBox.style.flex,
+          minHeight: tableBox.style.minHeight,
+        }
+      : null;
+
+    // Unconstrain the whole sheet so scrollHeight reflects true content size
+    // (must override !important min/max height used for live preview)
+    sheet.style.setProperty("height", "auto", "important");
+    sheet.style.setProperty("max-height", "none", "important");
+    sheet.style.setProperty("min-height", "0", "important");
+    sheet.style.overflow = "visible";
+    inner.style.height = "auto";
+    inner.style.maxHeight = "none";
+    inner.style.overflow = "visible";
+    inner.style.flex = "0 0 auto";
+    main.style.overflow = "visible";
+    main.style.flex = "0 0 auto";
+    main.style.minHeight = "auto";
+    if (tableBox) {
+      tableBox.style.overflow = "visible";
+      tableBox.style.flex = "0 0 auto";
+      tableBox.style.minHeight = "auto";
+    }
+
+    void sheet.offsetWidth;
+
+    const naturalHeight = Math.max(sheet.scrollHeight, inner.scrollHeight, sheet.offsetHeight);
+
+    sheet.style.setProperty("height", prevSheet.height, "important");
+    sheet.style.setProperty("max-height", prevSheet.maxHeight, "important");
+    sheet.style.setProperty("min-height", prevSheet.minHeight, "important");
+    sheet.style.overflow = prevSheet.overflow;
+    inner.style.height = prevInner.height;
+    inner.style.maxHeight = prevInner.maxHeight;
+    inner.style.overflow = prevInner.overflow;
+    inner.style.flex = prevInner.flex;
+    main.style.overflow = prevMain.overflow;
+    main.style.flex = prevMain.flex;
+    main.style.minHeight = prevMain.minHeight;
+    if (tableBox && prevBox) {
+      tableBox.style.overflow = prevBox.overflow;
+      tableBox.style.flex = prevBox.flex;
+      tableBox.style.minHeight = prevBox.minHeight;
+    }
+
+    return naturalHeight > allowed - PAGE_FIT_SAFETY_PX;
+  }
+
+  /** Binary-search how many leading items fit on one page with the given chrome. */
+  function maxItemsThatFit(items, data, { continued, isLast }) {
+    if (!items.length) return 0;
+
+    const measureRoot = getMeasureRoot();
+    measureRoot.innerHTML = "";
+
+    const fits = (count) => {
+      measureRoot.innerHTML = "";
+      const sheet = buildPageSheet(data, items.slice(0, count), {
+        continued,
+        isLast,
+        pageNo: 1,
+        totalPages: 1,
+        forMeasure: true,
+      });
+      measureRoot.appendChild(sheet);
+      void sheet.offsetHeight;
+      return !pageContentOverflows(sheet);
+    };
+
+    if (fits(items.length)) return items.length;
+    if (!fits(1)) return 1; // always keep at least one row; avoid infinite loops
+
+    let lo = 1;
+    let hi = items.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (fits(mid)) lo = mid;
+      else hi = mid - 1;
+    }
+
+    measureRoot.innerHTML = "";
+    return Math.max(1, lo);
   }
 
   /**
-   * Item capacity for a page kind.
-   * kind: single | first | mid | last
-   * Banking/QR every-page flags reduce first/mid capacity so items push to the next page
-   * instead of being clipped under the pay row.
-   */
-  function capacityFor(data, kind) {
-    const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
-    const portrait = map[data.orientation] || map.portrait;
-    const continued = map.continued || portrait;
-    const isLast = kind === "last" || kind === "single";
-    const summary = isLast;
-    const banking = pageShowsBanking(data, isLast);
-    const qr = pageShowsQr(data, isLast);
-
-    let base;
-    if (kind === "mid") base = continued;
-    else if (kind === "first") base = Math.max(12, portrait - 5); // bill/ship block
-    else if (kind === "last") base = Math.max(16, portrait - 2); // header + items + summary
-    else base = Math.max(14, portrait - 5); // single: parties + summary
-
-    if (data.orientation === "landscape") base = Math.max(4, Math.floor(base * 0.55));
-    if (data.customColumns.length >= 3) base = Math.max(4, base - 1);
-
-    return Math.max(1, base - footerReserve(data, { banking, qr, summary }));
-  }
-
-  /**
-   * One page if summary fits.
-   * Else fill front pages to capacity; last page holds as many as fit (saves space).
-   * Banking/QR on every page reduces front capacity so rows move to the next page — never clipped.
-   * Tiny stub pages (old 16+1 style) are avoided: overflow of ~1–2 items goes onto a new last page.
+   * Measurement-based pagination:
+   * - If all remaining items fit with totals/notes/banking → last page
+   * - Else pack a non-last page, leaving enough items to fill the last page
+   * Items are never clipped under banking/QR; they move to the next page.
    */
   function chunkItemsSmart(items, data) {
     if (!items.length) return [[]];
 
-    const singleCap = capacityFor(data, "single");
-    if (items.length <= singleCap) return [items.slice()];
-
-    const first = capacityFor(data, "first");
-    const mid = capacityFor(data, "mid");
-    const last = capacityFor(data, "last");
-    const n = items.length;
-
-    // Two-page pack: keep both pages useful (no 16+1 / 1+9)
-    if (n <= first + last) {
-      let firstCount = Math.min(first, Math.max(n - last, Math.ceil(n / 2)));
-      firstCount = Math.max(1, Math.min(firstCount, n - 1));
-      let lastCount = n - firstCount;
-      if (lastCount > last) {
-        lastCount = last;
-        firstCount = n - lastCount;
-      }
-      return [items.slice(0, firstCount), items.slice(firstCount)];
-    }
-
     const chunks = [];
-    const rem = items.slice();
-    chunks.push(rem.splice(0, Math.min(first, rem.length)));
+    let remaining = items.slice();
+    let guard = 0;
 
-    while (rem.length > last) {
-      // Still need more than one trailing page
-      if (rem.length <= mid + last) {
-        const take = Math.min(mid, rem.length - last);
-        // Avoid a tiny stub page: send a small overflow onto the next (last) page instead
-        if (take > 0 && take < 4) {
-          const overflow = Math.min(2, rem.length - 1);
-          chunks.push(rem.splice(0, rem.length - overflow));
-          break;
-        }
-        if (take <= 0) break;
-        chunks.push(rem.splice(0, take));
+    while (remaining.length && guard < items.length + 5) {
+      guard += 1;
+      const continued = chunks.length > 0;
+
+      // Prefer finishing on a last page (summary + totals) when everything fits
+      const lastFit = maxItemsThatFit(remaining, data, { continued, isLast: true });
+      if (lastFit >= remaining.length) {
+        chunks.push(remaining.splice(0, remaining.length));
         break;
       }
-      // Full middle page — banking/QR space already removed from `mid`
-      chunks.push(rem.splice(0, mid));
-    }
-    if (rem.length) chunks.push(rem);
 
-    return chunks.filter((c) => c.length);
+      // Not done — pack a non-last page, but leave a full last-page worth of items
+      const midFit = maxItemsThatFit(remaining, data, { continued, isLast: false });
+      let take = remaining.length - lastFit; // leave lastFit for the closing page
+      if (take > midFit) take = midFit;
+      if (take < 1) take = 1;
+      if (take >= remaining.length) take = remaining.length - 1;
+      chunks.push(remaining.splice(0, take));
+    }
+
+    if (remaining.length) chunks.push(remaining);
+    getMeasureRoot().innerHTML = "";
+    return chunks.length ? chunks : [[]];
   }
 
   /* ---------- Settings modal ---------- */
@@ -1083,78 +1250,15 @@
     root.innerHTML = "";
     root.style.setProperty("--doc-accent", data.themeColor);
 
-    const qrEnabled = data.showQr && Boolean(data.bank.upi) && data.totals.grand > 0;
-
     chunks.forEach((pageItems, index) => {
-      const pageNo = index + 1;
-      const continued = index > 0;
-      const isLast = index === totalPages - 1;
-      const showTableHeader = data.repeat.tableHeader || !continued;
-
-      const sheet = document.createElement("article");
-      sheet.className = "page-sheet";
-      sheet.dataset.size = data.pageSize;
-      sheet.dataset.orientation = data.orientation;
-      sheet.style.setProperty("--doc-accent", data.themeColor);
-
-      const bankingOnThisPage =
-        hasBanking(data.bank) && (isLast || data.repeat.banking);
-      const qrOnThisPage = qrEnabled && (isLast || data.qrEveryPage);
-
-      let summaryBlock = "";
-      if (isLast) {
-        summaryBlock = `<section class="page-sheet__summary">
-            <div class="doc-bottom">
-              <div class="doc-bottom__meta">
-                ${notesHTML(data)}
-                ${payRowHTML(data, {
-                  showBanking: bankingOnThisPage,
-                  showQr: qrOnThisPage,
-                })}
-              </div>
-              <div class="doc-bottom__totals">${totalsHTML(data)}</div>
-            </div>
-          </section>`;
-      } else if (bankingOnThisPage || qrOnThisPage) {
-        summaryBlock = `<section class="page-sheet__summary">
-            <div class="doc-bottom">
-              <div class="doc-bottom__meta">
-                ${payRowHTML(data, {
-                  showBanking: bankingOnThisPage,
-                  showQr: qrOnThisPage,
-                })}
-              </div>
-              <div class="doc-bottom__totals"></div>
-            </div>
-          </section>`;
-      }
-
-      sheet.innerHTML = `
-        <div class="page-sheet__inner">
-          <div class="page-sheet__main">
-            ${headerHTML(data, { continued })}
-            ${billShipHTML(data, { continued })}
-            <div class="doc-table-box">
-              ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
-            </div>
-          </div>
-          ${summaryBlock}
-          <footer class="page-sheet__footer">
-            <span class="powered">Powered by Number7 AI</span>
-            ${
-              data.repeat.pageNumbers
-                ? `<span class="page-num">Page ${pageNo} of ${totalPages}</span>`
-                : "<span></span>"
-            }
-          </footer>
-        </div>`;
-
+      const sheet = buildPageSheet(data, pageItems, {
+        continued: index > 0,
+        isLast: index === totalPages - 1,
+        pageNo: index + 1,
+        totalPages,
+        forMeasure: false,
+      });
       root.appendChild(sheet);
-
-      if (qrOnThisPage) {
-        const slot = sheet.querySelector('[data-qr-slot="1"]');
-        mountQr(slot, data);
-      }
     });
 
     scheduleFitPreviewScale();
