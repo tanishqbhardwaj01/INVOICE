@@ -799,10 +799,11 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  justify-content: flex-start;
 }
 
 .doc-table-box {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -939,10 +940,10 @@ button {
 
 .doc-table th {
   text-align: left;
-  padding: 6px 8px;
+  padding: 5px 6px;
   background: var(--doc-accent, var(--brand));
   color: #fff;
-  font-size: 8pt;
+  font-size: 7.5pt;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   font-weight: 700;
@@ -955,7 +956,7 @@ button {
 }
 
 .doc-table td {
-  padding: 6px 8px;
+  padding: 4px 6px;
   border-bottom: 1px solid #e5e7eb;
   vertical-align: top;
   word-break: break-word;

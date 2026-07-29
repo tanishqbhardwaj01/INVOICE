@@ -17,18 +17,11 @@
   ];
 
   const PAGE_ROWS = {
-    A4: { portrait: 12, landscape: 7 },
-    A3: { portrait: 22, landscape: 12 },
-    Letter: { portrait: 11, landscape: 7 },
-    Legal: { portrait: 16, landscape: 7 },
-  };
-
-  const LAST_PAGE_RESERVE = {
-    base: 3,
-    notes: 2,
-    banking: 3,
-    qr: 4,
-    charges: 2,
+    // Fill the sheet: middle/continued pages pack denser; last page uses reserve
+    A4: { portrait: 20, landscape: 11, continued: 24 },
+    A3: { portrait: 34, landscape: 18, continued: 40 },
+    Letter: { portrait: 18, landscape: 10, continued: 22 },
+    Legal: { portrait: 26, landscape: 11, continued: 30 },
   };
 
   const CURRENCY = {
@@ -270,36 +263,55 @@
     return `upi://pay?${params.toString()}`;
   }
 
-  function rowsPerPage(data) {
+  function rowsPerPage(data, { continued = false } = {}) {
     const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
-    let rows = map[data.orientation] || map.portrait;
-    if (data.customColumns.length >= 3) rows = Math.max(4, rows - 1);
+    let rows = continued
+      ? map.continued || map[data.orientation] || map.portrait
+      : map[data.orientation] || map.portrait;
+    // First page also has bill/ship block
+    if (!continued) rows = Math.max(10, rows - 6);
+    if (data.customColumns.length >= 3) rows = Math.max(8, rows - 1);
     return rows;
   }
 
   function lastPageItemCapacity(data) {
-    const full = rowsPerPage(data);
-    let reserve = LAST_PAGE_RESERVE.base;
-    if (data.notes || data.terms) reserve += LAST_PAGE_RESERVE.notes;
-    if (hasBanking(data.bank)) reserve += LAST_PAGE_RESERVE.banking;
-    if (data.showQr && data.bank.upi) reserve += LAST_PAGE_RESERVE.qr;
-    if (data.charges.length) reserve += LAST_PAGE_RESERVE.charges;
-    return Math.max(1, full - reserve);
+    // Closing page must leave room for notes / banking / QR / totals
+    let cap = data.pageSize === "A3" ? 10 : 5;
+    if (data.orientation === "landscape") cap = Math.max(2, cap - 2);
+    if (data.notes || data.terms) cap = Math.max(2, cap - 1);
+    if (hasBanking(data.bank)) cap = Math.max(2, cap - 1);
+    if (data.showQr && data.bank.upi) cap = Math.max(1, cap - 2);
+    if (data.charges.length) cap = Math.max(1, cap - 1);
+    return cap;
   }
 
-  function chunkItems(items, fullRows, lastRows) {
+  /**
+   * Pack so every non-last page is as full as possible.
+   * Last page only holds what fits with the summary block.
+   */
+  function chunkItemsSmart(items, data) {
     if (!items.length) return [[]];
-    const maxLast = Math.max(1, Math.min(lastRows, fullRows));
-    if (items.length <= maxLast) return [items.slice()];
+
+    const firstRows = rowsPerPage(data, { continued: false });
+    const midRows = rowsPerPage(data, { continued: true });
+    const lastRows = Math.max(1, lastPageItemCapacity(data));
+
+    if (items.length <= lastRows) return [items.slice()];
+
     const chunks = [];
     let remaining = items.slice();
-    while (remaining.length > maxLast) {
-      const overflow = remaining.length - maxLast;
-      const take = Math.min(fullRows, overflow);
+    let isFirst = true;
+
+    while (remaining.length > lastRows) {
+      const cap = isFirst ? firstRows : midRows;
+      const take = Math.min(cap, remaining.length - lastRows);
+      if (take <= 0) break;
       chunks.push(remaining.splice(0, take));
+      isFirst = false;
     }
-    chunks.push(remaining);
-    return chunks;
+
+    if (remaining.length) chunks.push(remaining);
+    return chunks.length ? chunks : [[]];
   }
 
   /* ---------- Settings modal ---------- */
@@ -638,7 +650,6 @@
                 ? `<div><strong>Due date</strong> ${escapeHtml(data.dueDate || "—")}</div>`
                 : `<div><strong>Terms</strong> ${escapeHtml(data.paymentTerms)}</div>`
             }
-            <div><strong>Status</strong> ${escapeHtml(data.paymentStatus)}</div>
           </div>
         </div>
       </header>`;
@@ -765,7 +776,6 @@
                <div class="doc-totals-row"><span>Balance</span><span>${money(Math.max(0, data.totals.grand - data.amountPaid), data.currency)}</span></div>`
             : ""
         }
-        <div class="doc-status">Status: <strong>${escapeHtml(data.paymentStatus)}</strong></div>
       </div>`;
   }
 
@@ -794,9 +804,7 @@
     root.style.width = "";
     scaleWrap.style.height = "auto";
 
-    const perPage = rowsPerPage(data);
-    const lastCap = lastPageItemCapacity(data);
-    const chunks = chunkItems(data.items, perPage, lastCap);
+    const chunks = chunkItemsSmart(data.items, data);
     const totalPages = chunks.length;
 
     $("#previewMeta").textContent = `Live document — ${data.pageSize} · ${
@@ -1165,7 +1173,7 @@
     state.logoDataUrl = "";
     state.customColumns = [];
     state.charges = [];
-    state.items = Array.from({ length: 18 }, (_, i) => ({
+    state.items = Array.from({ length: 36 }, (_, i) => ({
       id: uid("item"),
       description: `Service line ${i + 1}`,
       qty: 1,
