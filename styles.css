@@ -1653,13 +1653,6 @@ body.modal-open {
   box-sizing: border-box;
 }
 
-.doc-pay-row__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: grid;
-  gap: 3mm;
-}
-
 .doc-pay-row .doc-qr-wrap {
   margin-top: 0;
   flex-direction: column;
@@ -1670,40 +1663,8 @@ body.modal-open {
 
 .doc-pay-row .doc-banking {
   margin-top: 0;
-}
-
-.doc-pay-status h4 {
-  margin: 0 0 2px;
-  font-family: var(--font);
-  font-size: 8pt;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #6b7280;
-  font-weight: 700;
-}
-
-.doc-pay-status p {
-  margin: 0;
-}
-
-.doc-pay-status__badge {
-  display: inline-block;
-  font-family: var(--font);
-  font-size: 9.5pt;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.doc-pay-status__badge--partial {
-  color: #b45309;
-}
-
-.doc-pay-status__badge--paid {
-  color: #15803d;
-}
-
-.doc-pay-status__badge--unpaid {
-  color: #b91c1c;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .doc-gstin,

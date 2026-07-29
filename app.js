@@ -292,9 +292,9 @@
       if (status === "partial") {
         hint.textContent = "Partial — enter Amount paid under Items. Paid & balance appear on the invoice.";
       } else if (status === "paid") {
-        hint.textContent = "Paid — invoice shows Paid in the payment section.";
+        hint.textContent = "Paid — balance is cleared. Status stays in the editor only.";
       } else {
-        hint.textContent = "Unpaid — status shows in the payment section on the invoice.";
+        hint.textContent = "Unpaid — status stays in the editor only (not printed on the bill).";
       }
     }
   }
@@ -944,24 +944,11 @@
     return `<div class="doc-qr-wrap" data-qr-slot="${needed ? "1" : "0"}"></div>`;
   }
 
-  function paymentStatusBlockHTML(data) {
-    const status = data.paymentStatus || data.totals.paymentStatus || "unpaid";
-    return `<div class="doc-pay-status">
-      <h4>Payment status</h4>
-      <p><span class="doc-pay-status__badge doc-pay-status__badge--${escapeHtml(status)}">${escapeHtml(
-        paymentStatusLabel(status)
-      )}</span></p>
-    </div>`;
-  }
-
-  function payRowHTML(data, { showBanking, showQr, showStatus }) {
-    if (!showBanking && !showQr && !showStatus) return "";
+  function payRowHTML(data, { showBanking, showQr }) {
+    if (!showBanking && !showQr) return "";
     return `<div class="doc-pay-row">
       ${showQr ? qrSlotHTML(true) : ""}
-      <div class="doc-pay-row__text">
-        ${showStatus ? paymentStatusBlockHTML(data) : ""}
-        ${showBanking ? bankingHTML(data) : ""}
-      </div>
+      ${showBanking ? bankingHTML(data) : ""}
     </div>`;
   }
 
@@ -1089,7 +1076,6 @@
                 ${payRowHTML(data, {
                   showBanking: bankingOnThisPage,
                   showQr: qrOnThisPage,
-                  showStatus: true,
                 })}
               </div>
               <div class="doc-bottom__totals">${totalsHTML(data)}</div>
@@ -1102,7 +1088,6 @@
                 ${payRowHTML(data, {
                   showBanking: bankingOnThisPage,
                   showQr: qrOnThisPage,
-                  showStatus: false,
                 })}
               </div>
               <div class="doc-bottom__totals"></div>
