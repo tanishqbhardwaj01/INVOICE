@@ -873,6 +873,10 @@ button {
   margin-top: 5mm;
   padding-top: 4mm;
   border-top: 1px solid #e5e7eb;
+  /* Keep banking / QR from covering line items — items are paginated around this block */
+  position: relative;
+  z-index: 1;
+  background: #fff;
 }
 
 .page-sheet__footer {
