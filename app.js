@@ -4,10 +4,18 @@
   "use strict";
 
   const PAGE_ROWS = {
-    A4: { portrait: 14, landscape: 8 },
-    A3: { portrait: 24, landscape: 14 },
-    Letter: { portrait: 13, landscape: 8 },
-    Legal: { portrait: 18, landscape: 8 },
+    A4: { portrait: 12, landscape: 7 },
+    A3: { portrait: 22, landscape: 12 },
+    Letter: { portrait: 11, landscape: 7 },
+    Legal: { portrait: 16, landscape: 7 },
+  };
+
+  // Rows reserved on the last page for notes / banking / QR / totals
+  const LAST_PAGE_RESERVE = {
+    base: 3,
+    notes: 2,
+    banking: 3,
+    qr: 4,
   };
 
   const CURRENCY = {
@@ -184,12 +192,30 @@
     return map[data.orientation] || map.portrait;
   }
 
-  function chunkItems(items, size) {
+  function lastPageItemCapacity(data) {
+    const full = rowsPerPage(data);
+    let reserve = LAST_PAGE_RESERVE.base;
+    if (data.notes || data.terms) reserve += LAST_PAGE_RESERVE.notes;
+    if (hasBanking(data.bank)) reserve += LAST_PAGE_RESERVE.banking;
+    if (data.showQr && data.bank.upi) reserve += LAST_PAGE_RESERVE.qr;
+    return Math.max(1, full - reserve);
+  }
+
+  function chunkItems(items, fullRows, lastRows) {
     if (!items.length) return [[]];
+    const maxLast = Math.max(1, Math.min(lastRows, fullRows));
+    if (items.length <= maxLast) return [items.slice()];
+
     const chunks = [];
-    for (let i = 0; i < items.length; i += size) {
-      chunks.push(items.slice(i, i + size));
+    let remaining = items.slice();
+
+    while (remaining.length > maxLast) {
+      const overflow = remaining.length - maxLast;
+      const take = Math.min(fullRows, overflow);
+      chunks.push(remaining.splice(0, take));
     }
+
+    chunks.push(remaining);
     return chunks;
   }
 
@@ -366,7 +392,8 @@
     applyTheme(data.themeColor);
     const root = $("#pages-root");
     const perPage = rowsPerPage(data);
-    const chunks = chunkItems(data.items, perPage);
+    const lastCap = lastPageItemCapacity(data);
+    const chunks = chunkItems(data.items, perPage, lastCap);
     const totalPages = chunks.length;
 
     $("#previewMeta").textContent = `Live document — ${data.pageSize} · ${
@@ -393,40 +420,50 @@
       sheet.dataset.orientation = data.orientation;
       sheet.style.setProperty("--doc-accent", data.themeColor);
 
-      // Banking: always on last page; also on earlier pages when "repeat banking" is on
       const bankingOnThisPage =
         hasBanking(data.bank) && (isLast || data.repeat.banking);
 
       const qrNeeded = isLast && data.showQr && data.bank.upi && data.totals.grand > 0;
 
-      let bottomBlock = "";
+      let summaryBlock = "";
       if (isLast) {
-        bottomBlock = `<div class="doc-bottom">
-            <div>
-              ${notesHTML(data)}
-              ${bankingOnThisPage ? bankingHTML(data) : ""}
-              <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+        summaryBlock = `<section class="page-sheet__summary">
+            <div class="doc-bottom">
+              <div class="doc-bottom__meta">
+                ${notesHTML(data)}
+                ${bankingOnThisPage ? bankingHTML(data) : ""}
+                <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+              </div>
+              <div class="doc-bottom__totals">${totalsHTML(data)}</div>
             </div>
-            <div>${totalsHTML(data)}</div>
-          </div>`;
+          </section>`;
       } else if (bankingOnThisPage) {
-        bottomBlock = `<div class="doc-bottom"><div>${bankingHTML(data)}</div><div></div></div>`;
+        summaryBlock = `<section class="page-sheet__summary">
+            <div class="doc-bottom">
+              <div class="doc-bottom__meta">${bankingHTML(data)}</div>
+              <div class="doc-bottom__totals"></div>
+            </div>
+          </section>`;
       }
 
       sheet.innerHTML = `
         <div class="page-sheet__inner">
-          ${headerHTML(data, { continued })}
-          ${billToHTML(data, { continued })}
-          ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
-          ${bottomBlock}
-          <div class="page-sheet__footer">
+          <div class="page-sheet__main">
+            ${headerHTML(data, { continued })}
+            ${billToHTML(data, { continued })}
+            <div class="doc-table-box">
+              ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
+            </div>
+          </div>
+          ${summaryBlock}
+          <footer class="page-sheet__footer">
             <span class="powered">Powered by Number7 AI</span>
             ${
               data.repeat.pageNumbers
                 ? `<span class="page-num">Page ${pageNo} of ${totalPages}</span>`
                 : "<span></span>"
             }
-          </div>
+          </footer>
         </div>`;
 
       root.appendChild(sheet);
@@ -444,8 +481,8 @@
         if (window.QRCode) {
           new QRCode(qrBox, {
             text: upi,
-            width: 88,
-            height: 88,
+            width: 72,
+            height: 72,
             correctLevel: QRCode.CorrectLevel.M,
           });
         } else {
