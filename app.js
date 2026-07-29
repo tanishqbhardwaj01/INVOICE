@@ -3,11 +3,20 @@
 (() => {
   "use strict";
 
+  const MAX_CUSTOM_COLUMNS = 5;
+
   const PAGE_ROWS = {
-    A4: { portrait: 14, landscape: 8 },
-    A3: { portrait: 24, landscape: 14 },
-    Letter: { portrait: 13, landscape: 8 },
-    Legal: { portrait: 18, landscape: 8 },
+    A4: { portrait: 12, landscape: 7 },
+    A3: { portrait: 22, landscape: 12 },
+    Letter: { portrait: 11, landscape: 7 },
+    Legal: { portrait: 16, landscape: 7 },
+  };
+
+  const LAST_PAGE_RESERVE = {
+    base: 3,
+    notes: 2,
+    banking: 3,
+    qr: 4,
   };
 
   const CURRENCY = {
@@ -18,15 +27,17 @@
   };
 
   const state = {
-    items: [{ id: uid(), description: "", qty: 1, rate: 0 }],
+    items: [],
+    customColumns: [],
     logoDataUrl: "",
+    scaleRaf: 0,
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-  function uid() {
-    return `item_${Math.random().toString(36).slice(2, 9)}`;
+  function uid(prefix = "id") {
+    return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
   function todayISO() {
@@ -71,6 +82,14 @@
     return escapeHtml(str).replace(/\n/g, "<br />");
   }
 
+  function blankItem() {
+    const custom = {};
+    state.customColumns.forEach((col) => {
+      custom[col.id] = "";
+    });
+    return { id: uid("item"), description: "", qty: 1, rate: 0, custom };
+  }
+
   function getDueMode() {
     const checked = $('input[name="dueMode"]:checked');
     return checked ? checked.value : "date";
@@ -104,13 +123,12 @@
   function readForm() {
     const currency = $("#currency").value;
     const totals = computeTotals();
-    const dueMode = getDueMode();
     return {
       invoiceNumber: $("#invoiceNumber").value.trim() || "—",
       documentTitle: $("#documentTitle").value.trim() || "INVOICE",
       invoiceDate: $("#invoiceDate").value,
       currency,
-        themeColor: $("#themeColor").value || "#4066E6",
+      themeColor: $("#themeColor").value || "#4066E6",
       notes: $("#notes").value.trim(),
       terms: $("#terms").value.trim(),
       from: {
@@ -127,7 +145,7 @@
         country: $("#toCountry").value.trim(),
         contact: $("#toContact").value.trim(),
       },
-      dueMode,
+      dueMode: getDueMode(),
       dueDate: $("#dueDate").value,
       paymentTerms: getPaymentTermsLabel(),
       bank: {
@@ -147,9 +165,11 @@
         banking: $("#repeatBanking").checked,
         pageNumbers: $("#repeatPageNumbers").checked,
       },
+      customColumns: state.customColumns.map((c) => ({ ...c })),
       logoDataUrl: state.logoDataUrl,
       items: state.items.map((item) => ({
         ...item,
+        custom: { ...(item.custom || {}) },
         amount: (Number(item.qty) || 0) * (Number(item.rate) || 0),
       })),
       totals,
@@ -181,26 +201,169 @@
 
   function rowsPerPage(data) {
     const map = PAGE_ROWS[data.pageSize] || PAGE_ROWS.A4;
-    return map[data.orientation] || map.portrait;
+    let rows = map[data.orientation] || map.portrait;
+    // Extra custom columns take horizontal space; keep row budget stable
+    if (data.customColumns.length >= 3) rows = Math.max(4, rows - 1);
+    return rows;
   }
 
-  function chunkItems(items, size) {
+  function lastPageItemCapacity(data) {
+    const full = rowsPerPage(data);
+    let reserve = LAST_PAGE_RESERVE.base;
+    if (data.notes || data.terms) reserve += LAST_PAGE_RESERVE.notes;
+    if (hasBanking(data.bank)) reserve += LAST_PAGE_RESERVE.banking;
+    if (data.showQr && data.bank.upi) reserve += LAST_PAGE_RESERVE.qr;
+    return Math.max(1, full - reserve);
+  }
+
+  function chunkItems(items, fullRows, lastRows) {
     if (!items.length) return [[]];
+    const maxLast = Math.max(1, Math.min(lastRows, fullRows));
+    if (items.length <= maxLast) return [items.slice()];
+
     const chunks = [];
-    for (let i = 0; i < items.length; i += size) {
-      chunks.push(items.slice(i, i + size));
+    let remaining = items.slice();
+
+    while (remaining.length > maxLast) {
+      const overflow = remaining.length - maxLast;
+      const take = Math.min(fullRows, overflow);
+      chunks.push(remaining.splice(0, take));
     }
+
+    chunks.push(remaining);
     return chunks;
   }
 
+  /* ---------- Settings modal ---------- */
+
+  function openSettings() {
+    const modal = $("#settings-modal");
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+    $("#btn-settings").setAttribute("aria-expanded", "true");
+    renderColumnsEditor();
+  }
+
+  function closeSettings() {
+    const modal = $("#settings-modal");
+    modal.hidden = true;
+    document.body.classList.remove("modal-open");
+    $("#btn-settings").setAttribute("aria-expanded", "false");
+  }
+
+  function bindSettingsModal() {
+    $("#btn-settings").addEventListener("click", openSettings);
+    $$("[data-close-settings]").forEach((el) => {
+      el.addEventListener("click", closeSettings);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !$("#settings-modal").hidden) closeSettings();
+    });
+  }
+
+  /* ---------- Custom columns ---------- */
+
+  function renderColumnsEditor() {
+    const list = $("#columns-list");
+    const empty = $("#columns-empty");
+    const count = $("#columns-count");
+    const addBtn = $("#btn-add-column");
+    const n = state.customColumns.length;
+
+    count.textContent = `Add fields to line items (max ${MAX_CUSTOM_COLUMNS}) · ${n}/${MAX_CUSTOM_COLUMNS}`;
+    addBtn.disabled = n >= MAX_CUSTOM_COLUMNS;
+    empty.hidden = n > 0;
+
+    list.innerHTML = state.customColumns
+      .map(
+        (col, index) => `
+      <div class="column-row" data-col-id="${col.id}">
+        <label class="field field--grow">
+          <span>Column ${index + 1} name</span>
+          <input type="text" data-col-name value="${escapeHtml(col.name)}" placeholder="e.g. SKU" maxlength="24" />
+        </label>
+        <button type="button" class="btn btn--ghost btn--sm" data-remove-col aria-label="Remove column">Remove</button>
+      </div>`
+      )
+      .join("");
+  }
+
+  function syncItemsWithColumns() {
+    const ids = new Set(state.customColumns.map((c) => c.id));
+    state.items.forEach((item) => {
+      item.custom = item.custom || {};
+      state.customColumns.forEach((col) => {
+        if (item.custom[col.id] === undefined) item.custom[col.id] = "";
+      });
+      Object.keys(item.custom).forEach((key) => {
+        if (!ids.has(key)) delete item.custom[key];
+      });
+    });
+  }
+
+  function bindColumns() {
+    $("#btn-add-column").addEventListener("click", () => {
+      if (state.customColumns.length >= MAX_CUSTOM_COLUMNS) return;
+      state.customColumns.push({ id: uid("col"), name: `Column ${state.customColumns.length + 1}` });
+      syncItemsWithColumns();
+      renderColumnsEditor();
+      renderItemsEditor();
+      renderPages();
+    });
+
+    $("#columns-list").addEventListener("input", (e) => {
+      const input = e.target.closest("[data-col-name]");
+      if (!input) return;
+      const row = input.closest("[data-col-id]");
+      const col = state.customColumns.find((c) => c.id === row.dataset.colId);
+      if (!col) return;
+      col.name = input.value;
+      renderItemsEditor();
+      renderPages();
+    });
+
+    $("#columns-list").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-remove-col]");
+      if (!btn) return;
+      const row = btn.closest("[data-col-id]");
+      state.customColumns = state.customColumns.filter((c) => c.id !== row.dataset.colId);
+      syncItemsWithColumns();
+      renderColumnsEditor();
+      renderItemsEditor();
+      renderPages();
+    });
+  }
+
+  /* ---------- Items editor ---------- */
+
   function renderItemsEditor() {
+    const head = $("#items-head");
     const body = $("#items-body");
+    const customTh = state.customColumns
+      .map((col) => `<th class="custom-col">${escapeHtml(col.name || "Column")}</th>`)
+      .join("");
+
+    head.innerHTML = `<tr>
+      <th>Description</th>
+      ${customTh}
+      <th>Qty</th>
+      <th>Rate</th>
+      <th>Amount</th>
+      <th></th>
+    </tr>`;
+
     body.innerHTML = state.items
       .map((item) => {
         const amount = (Number(item.qty) || 0) * (Number(item.rate) || 0);
+        const customCells = state.customColumns
+          .map(
+            (col) => `<td><input type="text" data-custom="${col.id}" value="${escapeHtml((item.custom && item.custom[col.id]) || "")}" placeholder="${escapeHtml(col.name)}" /></td>`
+          )
+          .join("");
         return `
         <tr data-id="${item.id}">
           <td><input type="text" data-field="description" value="${escapeHtml(item.description)}" placeholder="Item name / description" /></td>
+          ${customCells}
           <td><input type="number" data-field="qty" min="0" step="1" value="${item.qty}" /></td>
           <td><input type="number" data-field="rate" min="0" step="0.01" value="${item.rate}" /></td>
           <td class="amount-cell">${money(amount, $("#currency").value)}</td>
@@ -219,10 +382,10 @@
   }
 
   function syncDueModeUI() {
-    const mode = getDueMode();
-    $("#dueDateField").hidden = mode !== "date";
-    $("#paymentTermsField").hidden = mode !== "terms";
-    const isCustom = mode === "terms" && $("#paymentTerms").value === "custom";
+    // Both fields stay visible; mode only controls what the invoice shows.
+    $("#dueDateField").hidden = false;
+    $("#paymentTermsField").hidden = false;
+    const isCustom = $("#paymentTerms").value === "custom";
     $("#customTermsField").hidden = !isCustom;
   }
 
@@ -258,16 +421,6 @@
 
   function billToHTML(data, { continued }) {
     if (continued && !data.repeat.billTo) return "";
-    if (!continued && !data.to.name && !partyLines(data.to)) {
-      return `
-        <section class="doc-parties">
-          <div>
-            <p class="doc-party-label">Bill to</p>
-            <p class="doc-party-name">—</p>
-          </div>
-        </section>`;
-    }
-    if (continued && !data.repeat.billTo) return "";
     return `
       <section class="doc-parties">
         <div>
@@ -279,10 +432,17 @@
   }
 
   function tableHTML(data, pageItems, { continued, isLast, showHeader }) {
+    const customHeads = data.customColumns
+      .map((col) => `<th>${escapeHtml(col.name || "Column")}</th>`)
+      .join("");
+
+    const colCount = 4 + data.customColumns.length;
+
     const header = showHeader
       ? `<thead>
           <tr>
             <th>Item</th>
+            ${customHeads}
             <th class="num">Qty</th>
             <th class="num">Rate</th>
             <th class="num">Amount</th>
@@ -292,29 +452,27 @@
 
     const rows =
       pageItems.length === 0
-        ? `<tr>
-            <td>No items</td>
-            <td class="num">—</td>
-            <td class="num">—</td>
-            <td class="num">—</td>
-          </tr>`
+        ? `<tr><td colspan="${colCount}">No items</td></tr>`
         : pageItems
-            .map(
-              (item) => `<tr>
+            .map((item) => {
+              const customCells = data.customColumns
+                .map((col) => `<td>${escapeHtml((item.custom && item.custom[col.id]) || "—")}</td>`)
+                .join("");
+              return `<tr>
               <td>${escapeHtml(item.description || "Untitled item")}</td>
+              ${customCells}
               <td class="num">${Number(item.qty) || 0}</td>
               <td class="num">${money(item.rate, data.currency)}</td>
               <td class="num">${money(item.amount, data.currency)}</td>
-            </tr>`
-            )
+            </tr>`;
+            })
             .join("");
 
-    const cont =
-      continued
-        ? `<p class="doc-continuation">Continued from previous page</p>`
-        : !isLast && pageItems.length
-          ? `<p class="doc-continuation">Continues on next page</p>`
-          : "";
+    const cont = continued
+      ? `<p class="doc-continuation">Continued from previous page</p>`
+      : !isLast && pageItems.length
+        ? `<p class="doc-continuation">Continues on next page</p>`
+        : "";
 
     return `${cont}<table class="doc-table">${header}<tbody>${rows}</tbody></table>`;
   }
@@ -351,7 +509,7 @@
     return `
       <div class="doc-notes">
         ${data.notes ? `<h4>Notes</h4><p>${nl2brSafe(data.notes)}</p>` : ""}
-        ${data.terms ? `<h4 style="margin-top:4mm">Terms &amp; conditions</h4><p>${nl2brSafe(data.terms)}</p>` : ""}
+        ${data.terms ? `<h4 style="margin-top:3mm">Terms &amp; conditions</h4><p>${nl2brSafe(data.terms)}</p>` : ""}
       </div>`;
   }
 
@@ -365,8 +523,16 @@
     const data = readForm();
     applyTheme(data.themeColor);
     const root = $("#pages-root");
+    const scaleWrap = $("#preview-scale");
+
+    // Reset transform before measuring new page sizes (fixes A4↔A3 glitches)
+    root.style.transform = "none";
+    root.style.width = "";
+    scaleWrap.style.height = "auto";
+
     const perPage = rowsPerPage(data);
-    const chunks = chunkItems(data.items, perPage);
+    const lastCap = lastPageItemCapacity(data);
+    const chunks = chunkItems(data.items, perPage, lastCap);
     const totalPages = chunks.length;
 
     $("#previewMeta").textContent = `Live document — ${data.pageSize} · ${
@@ -393,40 +559,49 @@
       sheet.dataset.orientation = data.orientation;
       sheet.style.setProperty("--doc-accent", data.themeColor);
 
-      // Banking: always on last page; also on earlier pages when "repeat banking" is on
       const bankingOnThisPage =
         hasBanking(data.bank) && (isLast || data.repeat.banking);
-
       const qrNeeded = isLast && data.showQr && data.bank.upi && data.totals.grand > 0;
 
-      let bottomBlock = "";
+      let summaryBlock = "";
       if (isLast) {
-        bottomBlock = `<div class="doc-bottom">
-            <div>
-              ${notesHTML(data)}
-              ${bankingOnThisPage ? bankingHTML(data) : ""}
-              <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+        summaryBlock = `<section class="page-sheet__summary">
+            <div class="doc-bottom">
+              <div class="doc-bottom__meta">
+                ${notesHTML(data)}
+                ${bankingOnThisPage ? bankingHTML(data) : ""}
+                <div class="doc-qr-wrap" data-qr-slot="${qrNeeded ? "1" : "0"}"></div>
+              </div>
+              <div class="doc-bottom__totals">${totalsHTML(data)}</div>
             </div>
-            <div>${totalsHTML(data)}</div>
-          </div>`;
+          </section>`;
       } else if (bankingOnThisPage) {
-        bottomBlock = `<div class="doc-bottom"><div>${bankingHTML(data)}</div><div></div></div>`;
+        summaryBlock = `<section class="page-sheet__summary">
+            <div class="doc-bottom">
+              <div class="doc-bottom__meta">${bankingHTML(data)}</div>
+              <div class="doc-bottom__totals"></div>
+            </div>
+          </section>`;
       }
 
       sheet.innerHTML = `
         <div class="page-sheet__inner">
-          ${headerHTML(data, { continued })}
-          ${billToHTML(data, { continued })}
-          ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
-          ${bottomBlock}
-          <div class="page-sheet__footer">
+          <div class="page-sheet__main">
+            ${headerHTML(data, { continued })}
+            ${billToHTML(data, { continued })}
+            <div class="doc-table-box">
+              ${tableHTML(data, pageItems, { continued, isLast, showHeader: showTableHeader })}
+            </div>
+          </div>
+          ${summaryBlock}
+          <footer class="page-sheet__footer">
             <span class="powered">Powered by Number7 AI</span>
             ${
               data.repeat.pageNumbers
                 ? `<span class="page-num">Page ${pageNo} of ${totalPages}</span>`
                 : "<span></span>"
             }
-          </div>
+          </footer>
         </div>`;
 
       root.appendChild(sheet);
@@ -444,8 +619,8 @@
         if (window.QRCode) {
           new QRCode(qrBox, {
             text: upi,
-            width: 88,
-            height: 88,
+            width: 72,
+            height: 72,
             correctLevel: QRCode.CorrectLevel.M,
           });
         } else {
@@ -454,26 +629,45 @@
       }
     });
 
-    fitPreviewScale();
+    scheduleFitPreviewScale();
   }
 
   function fitPreviewScale() {
     const stage = $("#preview-stage");
     const scaleWrap = $("#preview-scale");
+    const root = $("#pages-root");
     const first = $(".page-sheet", scaleWrap);
-    if (!first) return;
+    if (!first || !stage || !root) return;
 
-    const stageWidth = stage.clientWidth - 32;
+    // Clear previous scale so offsetWidth reflects true page size
+    root.style.transform = "none";
+    scaleWrap.style.height = "auto";
+    void first.offsetWidth;
+
+    const stageWidth = Math.max(0, stage.clientWidth - 32);
     const sheetWidth = first.offsetWidth;
-    if (!sheetWidth) return;
+    if (!sheetWidth || !stageWidth) return;
 
     const scale = Math.min(1, stageWidth / sheetWidth);
-    $("#pages-root").style.transform = `scale(${scale})`;
-    // Keep layout height correct after CSS transform
-    const root = $("#pages-root");
+    root.style.transform = `scale(${scale})`;
+    root.style.transformOrigin = "top center";
+
     const naturalHeight = root.scrollHeight;
-    scaleWrap.style.height = `${naturalHeight * scale}px`;
+    const naturalWidth = root.scrollWidth;
+    scaleWrap.style.height = `${Math.ceil(naturalHeight * scale)}px`;
     scaleWrap.style.width = "100%";
+    // Prevent horizontal bleed after scaling larger sheets (A3)
+    scaleWrap.style.overflow = "hidden";
+    void naturalWidth;
+  }
+
+  function scheduleFitPreviewScale() {
+    cancelAnimationFrame(state.scaleRaf);
+    state.scaleRaf = requestAnimationFrame(() => {
+      fitPreviewScale();
+      // Second pass after fonts/layout settle (page size switches)
+      state.scaleRaf = requestAnimationFrame(() => fitPreviewScale());
+    });
   }
 
   function bindSectionNav() {
@@ -492,25 +686,37 @@
 
   function bindItems() {
     $("#btn-add-item").addEventListener("click", () => {
-      state.items.push({ id: uid(), description: "", qty: 1, rate: 0 });
+      state.items.push(blankItem());
       renderItemsEditor();
       updateEditorTotals();
       renderPages();
     });
 
     $("#items-body").addEventListener("input", (e) => {
-      const input = e.target.closest("input[data-field]");
-      if (!input) return;
-      const row = input.closest("tr");
+      const customInput = e.target.closest("input[data-custom]");
+      const fieldInput = e.target.closest("input[data-field]");
+      const row = e.target.closest("tr");
+      if (!row) return;
       const item = state.items.find((i) => i.id === row.dataset.id);
       if (!item) return;
-      const field = input.dataset.field;
-      item[field] = field === "description" ? input.value : Number(input.value);
+
+      if (customInput) {
+        item.custom = item.custom || {};
+        item.custom[customInput.dataset.custom] = customInput.value;
+        renderPages();
+        return;
+      }
+
+      if (!fieldInput) return;
+      const field = fieldInput.dataset.field;
+      item[field] = field === "description" ? fieldInput.value : Number(fieldInput.value);
       const amountCell = row.querySelector(".amount-cell");
-      amountCell.textContent = money(
-        (Number(item.qty) || 0) * (Number(item.rate) || 0),
-        $("#currency").value
-      );
+      if (amountCell) {
+        amountCell.textContent = money(
+          (Number(item.qty) || 0) * (Number(item.rate) || 0),
+          $("#currency").value
+        );
+      }
       updateEditorTotals();
       renderPages();
     });
@@ -520,7 +726,7 @@
       if (!btn) return;
       const row = btn.closest("tr");
       if (state.items.length === 1) {
-        state.items[0] = { id: uid(), description: "", qty: 1, rate: 0 };
+        state.items[0] = blankItem();
       } else {
         state.items = state.items.filter((i) => i.id !== row.dataset.id);
       }
@@ -577,7 +783,10 @@
     formIds.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
-      const evt = el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color" ? "change" : "input";
+      const evt =
+        el.type === "checkbox" || el.tagName === "SELECT" || el.type === "color"
+          ? "change"
+          : "input";
       el.addEventListener(evt, () => {
         if (id === "pageSize") syncPageSizeControls("pageSize", el.value);
         if (id === "paymentTerms") syncDueModeUI();
@@ -621,16 +830,13 @@
       initDefaults();
     });
 
-    $("#btn-print").addEventListener("click", () => {
-      window.print();
-    });
-
+    $("#btn-print").addEventListener("click", () => window.print());
     const printIcon = $("#btn-print-icon");
     if (printIcon) printIcon.addEventListener("click", () => window.print());
     const downloadBtn = $("#btn-download");
     if (downloadBtn) downloadBtn.addEventListener("click", () => window.print());
 
-    window.addEventListener("resize", () => fitPreviewScale());
+    window.addEventListener("resize", () => scheduleFitPreviewScale());
   }
 
   function initDefaults() {
@@ -673,14 +879,16 @@
     $("#repeatPageNumbers").checked = true;
     $("#logoFile").value = "";
     state.logoDataUrl = "";
-    // Enough line items to demonstrate multi-page breaks on A4
+    state.customColumns = [];
     state.items = Array.from({ length: 18 }, (_, i) => ({
-      id: uid(),
+      id: uid("item"),
       description: `Service line ${i + 1}`,
       qty: 1,
       rate: 1000 + i * 250,
+      custom: {},
     }));
     syncDueModeUI();
+    renderColumnsEditor();
     renderItemsEditor();
     updateEditorTotals();
     renderPages();
@@ -688,6 +896,8 @@
 
   function boot() {
     bindSectionNav();
+    bindSettingsModal();
+    bindColumns();
     bindItems();
     bindForm();
     initDefaults();
