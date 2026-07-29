@@ -236,21 +236,67 @@
     return state.charges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
   }
 
+  function paymentStatusValue() {
+    const el = $("#paymentStatus");
+    return el ? el.value : "unpaid";
+  }
+
+  function paymentStatusLabel(status) {
+    if (status === "partial") return "Partial";
+    if (status === "paid") return "Paid";
+    return "Unpaid";
+  }
+
   function computeTotals() {
     const taxPercent = Number($("#taxPercent").value) || 0;
     const autoRound = $("#autoRound").checked;
-    const amountPaid = Number($("#amountPaid").value) || 0;
+    const status = paymentStatusValue();
     let subtotal = state.items.reduce((sum, item) => sum + lineAmount(item), 0);
     const charges = chargesTotal();
-    let taxable = subtotal + charges;
-    let tax = (taxable * taxPercent) / 100;
-    let grand = taxable + tax;
+    const taxable = subtotal + charges;
+    const tax = (taxable * taxPercent) / 100;
+    const rawGrand = taxable + tax;
+    let roundOff = 0;
+    let grand = rawGrand;
     if (autoRound) {
-      grand = Math.round(grand);
-      tax = grand - taxable;
+      grand = Math.round(rawGrand);
+      roundOff = grand - rawGrand;
     }
-    const balance = grand - amountPaid;
-    return { subtotal, charges, tax, taxPercent, grand, amountPaid, balance };
+    let amountPaid = Number($("#amountPaid").value) || 0;
+    if (status === "unpaid") amountPaid = 0;
+    if (status === "paid") amountPaid = grand;
+    const balance = Math.max(0, grand - amountPaid);
+    return {
+      subtotal,
+      charges,
+      tax,
+      taxPercent,
+      rawGrand,
+      roundOff,
+      autoRound,
+      grand,
+      amountPaid,
+      balance,
+      paymentStatus: status,
+    };
+  }
+
+  function syncPaymentStatusUI() {
+    const status = paymentStatusValue();
+    const paidField = $("#amountPaidField");
+    const balanceRow = $("#editorBalanceRow");
+    const hint = $("#paymentStatusHint");
+    if (paidField) paidField.hidden = status !== "partial";
+    if (balanceRow) balanceRow.hidden = status === "paid";
+    if (hint) {
+      if (status === "partial") {
+        hint.textContent = "Partial — enter Amount paid under Items. Paid & balance appear on the invoice.";
+      } else if (status === "paid") {
+        hint.textContent = "Paid — invoice shows Paid in the payment section.";
+      } else {
+        hint.textContent = "Unpaid — status shows in the payment section on the invoice.";
+      }
+    }
   }
 
   function sortedColumns() {
@@ -313,7 +359,8 @@
       paymentTerms: getPaymentTermsLabel(),
       paymentTermsValue: termsValue,
       showBothDueOnInvoice: $("#showBothDueOnInvoice").checked,
-      amountPaid: Number($("#amountPaid").value) || 0,
+      paymentStatus: paymentStatusValue(),
+      amountPaid: totals.amountPaid,
       bank: {
         name: $("#bankName").value.trim(),
         accountName: $("#accountName").value.trim(),
@@ -597,15 +644,9 @@
       .map(
         (c) => `
       <div class="charge-row" data-charge-id="${c.id}">
-        <label class="field field--grow">
-          <span>Label</span>
-          <input type="text" data-charge-label value="${escapeHtml(c.label)}" placeholder="e.g. Shipping / Discount" />
-        </label>
-        <label class="field">
-          <span>Amount</span>
-          <input type="number" data-charge-amount step="0.01" value="${c.amount}" />
-        </label>
-        <button type="button" class="btn btn--ghost btn--sm" data-remove-charge>Remove</button>
+        <input type="text" data-charge-label value="${escapeHtml(c.label)}" placeholder="Label (shipping, discount…)" />
+        <input type="number" data-charge-amount step="0.01" value="${c.amount}" placeholder="0.00" aria-label="Charge amount" />
+        <button type="button" class="btn btn--icon" data-remove-charge title="Remove charge" aria-label="Remove charge">×</button>
       </div>`
       )
       .join("");
@@ -715,12 +756,25 @@
 
   function updateEditorTotals() {
     const currency = $("#currency").value;
-    const { subtotal, charges, tax, grand, balance } = computeTotals();
+    const { subtotal, charges, tax, grand, balance, roundOff, autoRound, paymentStatus } =
+      computeTotals();
     $("#editorSubtotal").textContent = money(subtotal, currency);
     $("#editorCharges").textContent = money(charges, currency);
     $("#editorTax").textContent = money(tax, currency);
     $("#editorGrand").textContent = money(grand, currency);
     $("#editorBalance").textContent = money(balance, currency);
+    const roundWrap = $("#editorRoundOffWrap");
+    const roundEl = $("#editorRoundOff");
+    if (roundWrap && roundEl) {
+      const showRound = autoRound && Math.abs(roundOff) >= 0.005;
+      roundWrap.hidden = !showRound;
+      if (showRound) {
+        const sign = roundOff > 0 ? "+" : "";
+        roundEl.textContent = `${sign}${money(roundOff, currency)}`;
+      }
+    }
+    const balanceRow = $("#editorBalanceRow");
+    if (balanceRow) balanceRow.hidden = paymentStatus === "paid";
   }
 
   function syncShipUI() {
@@ -809,17 +863,23 @@
     };
 
     const headCols = (cols) =>
-      cols.map((col) => `<th>${escapeHtml(col.name || "Column")}</th>`).join("");
+      cols
+        .map((col) => `<th class="doc-custom">${escapeHtml(col.name || "Column")}</th>`)
+        .join("");
     const cellCols = (cols, item) =>
       cols
-        .map((col) => `<td>${escapeHtml((item.custom && item.custom[col.id]) || "—")}</td>`)
+        .map((col) => {
+          const raw = item.custom && item.custom[col.id];
+          const text = String(raw ?? "").trim();
+          return `<td class="doc-custom">${text ? escapeHtml(text) : "—"}</td>`;
+        })
         .join("");
 
     const colCount = 4 + data.customColumns.length;
     const header = showHeader
       ? `<thead><tr>
           ${headCols(s.before_item)}
-          <th>Item</th>
+          <th class="doc-item">Item</th>
           ${headCols(s.after_item)}
           ${headCols(s.before_qty)}
           <th class="num">Qty</th>
@@ -840,7 +900,7 @@
             .map(
               (item) => `<tr>
               ${cellCols(s.before_item, item)}
-              <td>${escapeHtml(item.description || "Untitled item")}</td>
+              <td class="doc-item">${escapeHtml(item.description || "Untitled item")}</td>
               ${cellCols(s.after_item, item)}
               ${cellCols(s.before_qty, item)}
               <td class="num">${Number(item.qty) || 0}</td>
@@ -884,11 +944,24 @@
     return `<div class="doc-qr-wrap" data-qr-slot="${needed ? "1" : "0"}"></div>`;
   }
 
-  function payRowHTML(data, { showBanking, showQr }) {
-    if (!showBanking && !showQr) return "";
+  function paymentStatusBlockHTML(data) {
+    const status = data.paymentStatus || data.totals.paymentStatus || "unpaid";
+    return `<div class="doc-pay-status">
+      <h4>Payment status</h4>
+      <p><span class="doc-pay-status__badge doc-pay-status__badge--${escapeHtml(status)}">${escapeHtml(
+        paymentStatusLabel(status)
+      )}</span></p>
+    </div>`;
+  }
+
+  function payRowHTML(data, { showBanking, showQr, showStatus }) {
+    if (!showBanking && !showQr && !showStatus) return "";
     return `<div class="doc-pay-row">
       ${showQr ? qrSlotHTML(true) : ""}
-      ${showBanking ? bankingHTML(data) : ""}
+      <div class="doc-pay-row__text">
+        ${showStatus ? paymentStatusBlockHTML(data) : ""}
+        ${showBanking ? bankingHTML(data) : ""}
+      </div>
     </div>`;
   }
 
@@ -900,20 +973,32 @@
           `<div class="doc-totals-row"><span>${escapeHtml(c.label || "Charge")}</span><span>${money(c.amount, data.currency)}</span></div>`
       )
       .join("");
-    const paid = data.amountPaid || 0;
+    const status = data.paymentStatus || data.totals.paymentStatus || "unpaid";
+    const paid = data.totals.amountPaid || 0;
     const balance = data.totals.balance != null ? data.totals.balance : data.totals.grand - paid;
+    const roundOff = data.totals.roundOff || 0;
+    const showRound = data.totals.autoRound && Math.abs(roundOff) >= 0.005;
+    const roundSign = roundOff > 0 ? "+" : "";
+    const partialRows =
+      status === "partial"
+        ? `<div class="doc-totals-row"><span>Paid</span><span>${money(paid, data.currency)}</span></div>
+           <div class="doc-totals-row"><span>Balance</span><span>${money(balance, data.currency)}</span></div>`
+        : "";
     return `
       <div class="doc-totals">
         <div class="doc-totals-row"><span>Items total</span><span>${money(data.totals.subtotal, data.currency)}</span></div>
         ${chargeRows}
         <div class="doc-totals-row"><span>Tax (${data.totals.taxPercent}%)</span><span>${money(data.totals.tax, data.currency)}</span></div>
-        <div class="doc-totals-row grand"><span>TOTAL</span><span>${money(data.totals.grand, data.currency)}</span></div>
         ${
-          paid > 0
-            ? `<div class="doc-totals-row"><span>Paid</span><span>${money(paid, data.currency)}</span></div>
-               <div class="doc-totals-row"><span>Balance</span><span>${money(balance, data.currency)}</span></div>`
+          showRound
+            ? `<div class="doc-totals-row doc-totals-row--round"><span>Round off</span><span>${roundSign}${money(
+                roundOff,
+                data.currency
+              )}</span></div>`
             : ""
         }
+        <div class="doc-totals-row grand"><span>TOTAL</span><span>${money(data.totals.grand, data.currency)}</span></div>
+        ${partialRows}
       </div>`;
   }
 
@@ -1001,7 +1086,11 @@
             <div class="doc-bottom">
               <div class="doc-bottom__meta">
                 ${notesHTML(data)}
-                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+                ${payRowHTML(data, {
+                  showBanking: bankingOnThisPage,
+                  showQr: qrOnThisPage,
+                  showStatus: true,
+                })}
               </div>
               <div class="doc-bottom__totals">${totalsHTML(data)}</div>
             </div>
@@ -1010,7 +1099,11 @@
         summaryBlock = `<section class="page-sheet__summary">
             <div class="doc-bottom">
               <div class="doc-bottom__meta">
-                ${payRowHTML(data, { showBanking: bankingOnThisPage, showQr: qrOnThisPage })}
+                ${payRowHTML(data, {
+                  showBanking: bankingOnThisPage,
+                  showQr: qrOnThisPage,
+                  showStatus: false,
+                })}
               </div>
               <div class="doc-bottom__totals"></div>
             </div>
@@ -1201,6 +1294,7 @@
       "shipDifferent",
       "dueDate",
       "paymentTerms",
+      "paymentStatus",
       "showBothDueOnInvoice",
       "amountPaid",
       "bankName",
@@ -1236,6 +1330,10 @@
           });
         }
         if (id === "shipDifferent") syncShipUI();
+        if (id === "paymentStatus") {
+          syncPaymentStatusUI();
+          updateEditorTotals();
+        }
         if (
           id === "currency" ||
           id === "taxPercent" ||
@@ -1330,8 +1428,9 @@
     $("#shipEmail").value = "";
     $("#shipPhone").value = "";
     $("#taxPercent").value = "18";
-    $("#autoRound").checked = false;
+    $("#autoRound").checked = true;
     $("#paymentTerms").value = "30";
+    $("#paymentStatus").value = "unpaid";
     $("#showBothDueOnInvoice").checked = true;
     $("#amountPaid").value = "0";
     $("#bankName").value = "HDFC Bank";
@@ -1362,6 +1461,7 @@
     }));
     syncPaymentDueUI();
     syncShipUI();
+    syncPaymentStatusUI();
     renderColumnsEditor();
     renderChargesEditor();
     renderItemsEditor();
