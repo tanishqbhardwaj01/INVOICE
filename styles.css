@@ -867,12 +867,13 @@ button {
 }
 
 .page-sheet__main {
-  flex: 1 1 auto;
+  /* Size to content — do not grow and push notes/totals to the page bottom */
+  flex: 0 0 auto;
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   justify-content: flex-start;
 }
 
@@ -898,7 +899,7 @@ button {
 
 .page-sheet__footer {
   flex: 0 0 auto;
-  margin-top: 4mm;
+  margin-top: auto;
   padding-top: 3mm;
   display: flex;
   justify-content: space-between;
@@ -1301,9 +1302,16 @@ button {
 }
 
 @media print {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
   .rail,
   .topbar,
-  .panel--editor {
+  .panel--editor,
+  .preview-tools,
+  #measure-root {
     display: none !important;
   }
 
@@ -1312,37 +1320,66 @@ button {
   .workspace {
     display: block;
     height: auto;
+    width: auto;
+    background: #fff;
   }
 
   .panel--preview {
     border: none;
     box-shadow: none;
+    display: block;
+    height: auto;
   }
 
   .panel__head--preview {
     display: none !important;
   }
 
-  .preview-stage {
-    overflow: visible;
-    padding: 0;
-    background: #fff;
+  .preview-stage,
+  .preview-scale {
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #fff !important;
+    height: auto !important;
+    width: auto !important;
   }
 
   .pages-root {
     transform: none !important;
-    gap: 0;
+    gap: 0 !important;
+    display: block !important;
+    height: auto !important;
   }
 
   .page-sheet {
-    box-shadow: none;
+    box-shadow: none !important;
     page-break-after: always;
     break-after: page;
+    overflow: hidden !important;
+    /* Keep forced A4 box from JS; pack content from the top */
   }
 
   .page-sheet:last-child {
     page-break-after: auto;
     break-after: auto;
+  }
+
+  .page-sheet__inner {
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .page-sheet__main {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+  }
+
+  .page-sheet__summary {
+    flex: 0 0 auto !important;
+  }
+
+  .page-sheet__footer {
+    margin-top: auto !important;
   }
 }
 
