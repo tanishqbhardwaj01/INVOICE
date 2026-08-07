@@ -1,0 +1,161 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{fontawesome5}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\textwidth}{1.19in}
+\addtolength{\topmargin}{-.8in}
+\addtolength{\textheight}{1.5in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large\bfseries
+}{}{0em}{}[\color{black}\titlerule \vspace{-7pt}]
+
+\pdfgentounicode=1
+
+\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-2pt}}}}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+  \begin{tabular*}{1.0\textwidth}[t]{l@{\extracolsep{\fill}}r}
+    \textbf{#1} & \textbf{\small #2} \\
+    \textit{\small#3} & \textit{\small #4} \\
+  \end{tabular*}\vspace{-8pt}
+}
+
+\newcommand{\resumeProjectHeading}[4]{
+  \item
+  \begin{tabular*}{1.0\textwidth}{l@{\extracolsep{\fill}}r}
+    \small\textbf{#1} & \small\href{#4}{\textbf{GitHub}} \\
+  \end{tabular*}\vspace{-8pt}
+}
+
+\renewcommand\labelitemi{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.15in]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-6pt}}
+
+\begin{document}
+
+\begin{center}
+  {\Huge \scshape Tanishq} \vspace{3pt} \\
+  \small
+  \faPhone\ +91 8929232078 ~
+  \faEnvelope\ \href{mailto:tanishqbhardwaj03@gmail.com}{tanishqbhardwaj03@gmail.com} ~
+  \faGithub\ \href{https://github.com/tanisshqbhardwwaj}{tanisshqbhardwwaj} ~
+  \faLinkedin\ \href{https://www.linkedin.com/in/tanisshqbhardwwaj/}{tanisshqbhardwwaj}
+\end{center}
+
+%----------- EDUCATION -----------
+\section{Education}
+\resumeSubHeadingListStart
+  \resumeSubheading
+    {Delhi Technological University}{Jun 2026}
+    {B.Tech, Computer Science and Engineering}{Delhi, India}
+\resumeSubHeadingListEnd
+
+%----------- TECHNICAL SKILLS -----------
+\section{Technical Skills}
+\small
+\textbf{Languages:} C++, C, Python, JavaScript, TypeScript, HTML/CSS, SQL \\
+\textbf{Frameworks \& Tools:} Node.js, Express.js, React.js, Next.js, Prisma ORM, REST APIs, Docker, Nginx, Git \\
+\textbf{Databases:} PostgreSQL, MongoDB \\
+\textbf{Core Concepts:} Data Structures, Algorithms, Operating Systems, DBMS, Networks, OOP, SDLC
+
+%----------- EXPERIENCE -----------
+\section{Professional Experience}
+\resumeSubHeadingListStart
+
+  \resumeSubheading
+    {Number7 AI}{July 2026 -- Present}
+    {Full Stack Developer Intern}{Delhi NCR, India}
+  \resumeItemListStart
+    \resumeItem{Built \textbf{Document Generation} invoice studio for AIdaptIQ with live side-by-side editor/preview supporting \textbf{A4/A3/Letter/Legal} layouts, multi-currency, and GST-aware billing.}
+    \resumeItem{Engineered \textbf{measure-based multi-page pagination} with dynamic page breaks, Page X of Y numbering, and repeat-on-every-page controls for headers, banking details, and UPI QR.}
+    \resumeItem{Implemented payment workflows with \textbf{Net terms / custom due dates}, partial payments, banking (IFSC/UPI), and \textbf{UPI QR} encoded with the live grand-total amount.}
+    \resumeItem{Developed line-item tooling with \textbf{custom columns}, \%/flat discounts, arithmetic cell evaluation, charges, and round-off; hardened UI with XSS-safe rendering and print-layout fixes.}
+  \resumeItemListEnd
+
+  \resumeSubheading
+    {Entice Business Support Services}{June 2025 -- July 2025}
+    {Software Development Engineer Intern}{Pune, India}
+  \resumeItemListStart
+    \resumeItem{Developed and optimized \textbf{15+ React.js components} achieving \textbf{25\%} improvement in page load speed through performance optimization and memoization techniques.}
+    \resumeItem{Designed and implemented \textbf{8 RESTful API integrations}; achieved \textbf{99.2\% API reliability} with comprehensive error handling and input validation strategies.}
+    \resumeItem{Implemented state management using \textbf{React Context API}, reducing re-renders by \textbf{40\%} and memory consumption by \textbf{30\%} across the application.}
+    \resumeItem{Executed \textbf{unit, integration, and acceptance testing} across 20+ components; applied secure coding and input sanitization to prevent XSS vulnerabilities.}
+  \resumeItemListEnd
+\resumeSubHeadingListEnd
+
+%----------- PROJECTS -----------
+\section{Software Development Projects}
+\resumeSubHeadingListStart
+
+  \resumeProjectHeading
+    {\textbf{Finora} -- Personal Finance Tracker (React 19, TypeScript, Node.js, PostgreSQL, Docker)}{}
+    {}{https://github.com/tanisshqbhardwwaj/finora-finance-tracker}
+  \resumeItemListStart
+    \resumeItem{Architected full-stack finance tracker with \textbf{React 19 + TypeScript} frontend and \textbf{Node.js/Express + TypeScript} backend across \textbf{15+ REST API endpoints} with JWT authentication, bcrypt hashing, and rate limiting.}
+    \resumeItem{Designed \textbf{PostgreSQL schema} with Prisma ORM featuring transaction management, monthly budget alerts, and analytics dashboard with 6-month expense trends, daily spend averages, and expense/income ratio.}
+  \resumeItemListEnd
+
+  \vspace{-4pt}
+
+  \resumeProjectHeading
+    {\textbf{BiteBlitz} -- Food Delivery Platform (React.js, Node.js, MongoDB, Stripe)}{}
+    {}{https://github.com/tanisshqbhardwwaj/BiteBlitz}
+  \resumeItemListStart
+    \resumeItem{Built full-stack food delivery application with \textbf{3+ user roles} (customer, restaurant, admin), real-time order tracking, and responsive UI managing \textbf{50+ restaurants}; deployed on Vercel with separate admin portal.}
+    \resumeItem{Implemented \textbf{Stripe payment integration} with PCI DSS compliance; designed \textbf{JWT authentication} with bcrypt password hashing and protected routing via Axios interceptors.}
+    \resumeItem{Developed \textbf{admin dashboard} with order management, restaurant analytics, and inventory tracking; optimized component rendering achieving \textbf{20\% faster load time}.}
+  \resumeItemListEnd
+
+  \vspace{-4pt}
+
+  \resumeProjectHeading
+    {\textbf{TrekTrail} -- Trekking Review Platform (Node.js, Express.js, MongoDB, EJS)}{}
+    {}{https://github.com/tanisshqbhardwwaj/Trek\_trail}
+  \resumeItemListStart
+    \resumeItem{Built full-stack trekking review platform with \textbf{Node.js/Express} backend and \textbf{EJS server-side rendering} managing \textbf{70+ trek datasets} with user-generated reviews and ratings.}
+    \resumeItem{Implemented \textbf{custom error handling} with ExpressError class and async wrapper utilities ensuring graceful error management; structured modular codebase with dedicated routes, models, and seed infrastructure.}
+    \resumeItem{Deployed on \textbf{Render} with environment configuration and continuous availability; applied input validation and secure coding practices across all routes.}
+  \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%----------- ACHIEVEMENTS -----------
+\section{Achievements \& Recognition}
+\resumeSubHeadingListStart
+  \resumeItemListStart
+    \resumeItem{\textbf{Data Structures \& Algorithms:} Solved \textbf{400+ problems} and actively participated in coding contests on LeetCode and CodeChef, strengthening problem-solving and algorithmic thinking.}
+    \resumeItem{\textbf{UPSC NDA Examination (2022):} Cleared prestigious national-level exam, selected from top \textbf{0.34\%} of 3.5 lakh candidates.}
+    \resumeItem{\textbf{BITS Pilani Samadhan Conclave:} Finalist (Top 10 of 100+ teams); designed end-to-end UI/UX architecture for service discovery platform.}
+    \resumeItem{\textbf{Community Leader, MILAAN DTU:} Organised mentorship and technical training programs for \textbf{1000+ students} under Microsoft Azure Developer Community.}
+  \resumeItemListEnd
+\resumeSubHeadingListEnd
+
+\end{document}
